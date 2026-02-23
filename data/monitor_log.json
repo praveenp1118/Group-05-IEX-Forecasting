@@ -1,0 +1,31 @@
+{
+  "timestamp": "2026-02-24T02:04:52.693309",
+  "freshness": {
+    "IEX": {
+      "status": "FRESH",
+      "age_minutes": 8
+    },
+    "Weather": {
+      "status": "FRESH",
+      "age_minutes": 4
+    },
+    "Commodities": {
+      "status": "FRESH",
+      "age_minutes": 18
+    }
+  },
+  "drift": {
+    "MCP_drift": {
+      "historical_mean": 4361.68,
+      "live_mean": 4016.41,
+      "drift_pct": 7.92,
+      "alert": "False"
+    },
+    "temperature_drift": {
+      "historical_mean": 25.93,
+      "live_mean": 25.9,
+      "drift_pct": 0.14,
+      "alert": "False"
+    }
+  }
+}

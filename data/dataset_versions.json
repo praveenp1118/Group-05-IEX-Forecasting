@@ -1,0 +1,102 @@
+{
+  "master_training_data": [
+    {
+      "version": 1,
+      "timestamp": "2026-02-23T23:52:17.513665",
+      "records": 180442,
+      "hash": "17c5682cb1143ad606489f0852ae5489",
+      "notes": "Merged 2026-02-23"
+    },
+    {
+      "version": 2,
+      "timestamp": "2026-02-23T23:55:38.391791",
+      "records": 180442,
+      "hash": "17c5682cb1143ad606489f0852ae5489",
+      "notes": "Merged 2026-02-23"
+    },
+    {
+      "version": 3,
+      "timestamp": "2026-02-23T23:55:38.610793",
+      "records": 180442,
+      "hash": "17c5682cb1143ad606489f0852ae5489",
+      "notes": "Pipeline run 2026-02-23"
+    },
+    {
+      "version": 4,
+      "timestamp": "2026-02-24T00:07:52.617063",
+      "records": 105274,
+      "hash": "af9734699d0e8c24d14e5fa7b2648a01",
+      "notes": "Fixed merge 2026-02-24"
+    },
+    {
+      "version": 5,
+      "timestamp": "2026-02-24T00:08:12.991075",
+      "records": 105274,
+      "hash": "af9734699d0e8c24d14e5fa7b2648a01",
+      "notes": "Fixed merge 2026-02-24"
+    },
+    {
+      "version": 6,
+      "timestamp": "2026-02-24T00:08:13.085062",
+      "records": 105274,
+      "hash": "af9734699d0e8c24d14e5fa7b2648a01",
+      "notes": "Pipeline run 2026-02-24"
+    },
+    {
+      "version": 7,
+      "timestamp": "2026-02-24T00:14:43.779237",
+      "records": 105274,
+      "hash": "7034c0b66caee7af5fab1d315341734b",
+      "notes": "Fixed merge 2026-02-24"
+    },
+    {
+      "version": 8,
+      "timestamp": "2026-02-24T00:15:07.903466",
+      "records": 105274,
+      "hash": "7034c0b66caee7af5fab1d315341734b",
+      "notes": "Fixed merge 2026-02-24"
+    },
+    {
+      "version": 9,
+      "timestamp": "2026-02-24T00:15:07.989865",
+      "records": 105274,
+      "hash": "7034c0b66caee7af5fab1d315341734b",
+      "notes": "Pipeline run 2026-02-24"
+    },
+    {
+      "version": 10,
+      "timestamp": "2026-02-24T00:22:46.096237",
+      "records": 105274,
+      "hash": "ad87f4b1980b1e44a54c24ba542a9eb8",
+      "notes": "Leakage-fixed 2026-02-24"
+    },
+    {
+      "version": 11,
+      "timestamp": "2026-02-24T00:23:04.565353",
+      "records": 105274,
+      "hash": "ad87f4b1980b1e44a54c24ba542a9eb8",
+      "notes": "Leakage-fixed 2026-02-24"
+    },
+    {
+      "version": 12,
+      "timestamp": "2026-02-24T00:30:27.685324",
+      "records": 105274,
+      "hash": "ad87f4b1980b1e44a54c24ba542a9eb8",
+      "notes": "Leakage-fixed 2026-02-24"
+    },
+    {
+      "version": 13,
+      "timestamp": "2026-02-24T00:32:58.088430",
+      "records": 105274,
+      "hash": "ad87f4b1980b1e44a54c24ba542a9eb8",
+      "notes": "Leakage-fixed 2026-02-24"
+    },
+    {
+      "version": 14,
+      "timestamp": "2026-02-24T02:07:15.711939",
+      "records": 105324,
+      "hash": "a46d9c7418dfe0dcdf88d99442affb8f",
+      "notes": "Leakage-fixed 2026-02-24"
+    }
+  ]
+}
