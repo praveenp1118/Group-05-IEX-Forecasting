@@ -6,12 +6,27 @@
 
 ---
 
+## 🌐 Live Deployment (AWS EC2)
+
+| | |
+|---|---|
+| **Public URL** | http://13.236.44.97:5000 |
+| **Home Page** | http://13.236.44.97:5000/ |
+| **Health Check** | http://13.236.44.97:5000/health |
+| **Interactive Predictor** | http://13.236.44.97:5000/predict |
+| **24h Forecast** | http://13.236.44.97:5000/forecast/24h |
+| **EDA Dashboard** | http://13.236.44.97:5000/eda |
+| **Server** | AWS EC2 t3.small — ap-southeast-2 (Sydney) |
+| **Container** | Docker (Python 3.11 + Chromium/Selenium) |
+
+---
+
 ## 📊 Results Summary
 
 | Metric | Value |
 |---|---|
-| **Best Model** | XGBoost v6 |
-| **Test MAPE** | 19.35% |
+| **Best Model** | XGBoost v7 |
+| **Test MAPE** | 20.65% |
 | **ARIMA Baseline MAPE** | 53.46% |
 | **Improvement over Baseline** | 63.8% |
 | **Simulated P&L** | ₹7.7 Crore (100 MW, 3 months) |
@@ -33,20 +48,24 @@
          ▼              ▼                  ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                 DATA PIPELINE                               │
-│  iex_scraper.py   fetch_weather.py   fetch_commodities.py   │
+│  scraper_iex.py      scraper_weather.py                     │
+│  fetch_historical_commodities.py                            │
 │        │               │                   │                │
 │        └───────────────┴───────────────────┘                │
 │                        │                                    │
 │              merge_historical.py                            │
 │         (Option B: Scraped + Price.xlsx gap fill)           │
 │         (Leakage-free rolling features on shifted MCP)      │
+│                        │                                    │
+│              sync_live_files.py                             │
+│         (Copies latest rows to *_live.csv every 30 min)     │
 └────────────────────────┬────────────────────────────────────┘
                          │
                          ▼
 ┌─────────────────────────────────────────────────────────────┐
 │              MASTER TRAINING DATA                           │
-│  105,274 records | 3 years | 42 features                    │
-│  Period: Feb 2023 – Feb 2026                                │
+│  52,705 records | 18 months | 36 features                   │
+│  Period: Aug 2024 – Feb 2026 (regime-aligned)               │
 └────────────────────────┬────────────────────────────────────┘
                          │
                          ▼
@@ -56,7 +75,7 @@
 │  Step 1: Schema Validation (validator.py)                   │
 │  Step 2: Feature prep — last 18 months, leakage-free        │
 │  Step 3: Train ARIMA + SVM + XGBoost (3-fold CV)           │
-│  Step 4: Business Evaluation (₹ P&L simulation)            │
+│  Step 4: Business Evaluation (Rs P&L simulation)            │
 │  Step 5: PESTLE Scenario Analysis (7 scenarios)             │
 │  Step 6: Model Versioning + Rollback                        │
 │  Step 7: EDA Report Generation                              │
@@ -64,26 +83,28 @@
                          │
                          ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                 FLASK REST API                              │
-│                   app/app.py                                │
+│                 FLASK REST API  (app/app.py)                 │
 │                                                             │
-│  /                    → Model info + endpoint list          │
+│  /                    → HTML home page + clickable links    │
 │  /health              → System health + data freshness      │
-│  /predict/sample      → Live single prediction              │
+│  /predict             → Interactive HTML prediction form    │
+│  /predict/sample      → Live single prediction (JSON)       │
 │  /forecast/24h        → 96-block forecast + signals         │
 │  /feature-importance  → Top 10 model drivers                │
 │  /trading-simulation  → Historical P&L log                  │
 │  /data/latest         → Live data freshness status          │
 │  /eda                 → EDA dashboard (HTML)                │
 │  /monitoring          → Drift detection                     │
-│  /retrain             → Trigger retraining                  │
+│  /refresh             → Trigger immediate data refresh      │
+│  /retrain             → Trigger model retraining            │
 └────────────────────────┬────────────────────────────────────┘
                          │
                          ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                   DEPLOYMENT                                │
-│         Docker Container  │  Local Flask Server             │
-│         Port 5000         │  python app/app.py              │
+│   AWS EC2 t3.small          Docker Container                │
+│   13.236.44.97:5000         Port 5000                       │
+│   Auto-scheduler 30min      Chromium + Selenium             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -94,48 +115,52 @@
 ```
 Group-05-IEX-Forecasting/
 │
-├── data/                          # All data files
-│   ├── Price.xlsx                 # Mendeley dataset (2021-2023, hourly)
-│   ├── iex_historical.csv         # Scraped IEX RTM data (2023-2026)
-│   ├── iex_live.csv               # Latest IEX 15-min blocks
-│   ├── weather_historical.csv     # NASA POWER — 8 cities, 3 years
-│   ├── weather_live.csv           # Latest weather readings
-│   ├── commodities_historical.csv # Crude oil, gas, USD/INR
-│   ├── commodities_live.csv       # Latest commodity prices
-│   └── master_training_data.csv   # Final merged + engineered dataset
+├── data/                               # All data files
+│   ├── Price.xlsx                      # Mendeley dataset (2021-2023, hourly)
+│   ├── iex_historical.csv              # Scraped IEX RTM data (2023-2026)
+│   ├── iex_live.csv                    # Latest IEX 15-min blocks (auto-refreshed)
+│   ├── weather_historical.csv          # NASA POWER — 8 cities, 3 years
+│   ├── weather_live.csv                # Latest weather readings (auto-refreshed)
+│   ├── commodities_historical.csv      # Crude oil, gas, USD/INR
+│   ├── commodities_live.csv            # Latest commodity prices (auto-refreshed)
+│   └── master_training_data.csv        # Final merged + engineered dataset
 │
-├── data_pipeline/                 # All data scripts
-│   ├── iex_scraper.py             # IEX website scraper (1 day at a time)
-│   ├── fetch_historical_weather.py# NASA POWER API — 8 cities
+├── data_pipeline/                      # All data scripts
+│   ├── scraper_iex.py                  # IEX website scraper (Selenium, headless)
+│   ├── scraper_weather.py              # NASA POWER API — 8 cities
 │   ├── fetch_historical_commodities.py # Yahoo Finance + Frankfurter
-│   ├── merge_historical.py        # Master merge with leakage-free features
-│   ├── eda_generator.py           # Auto-generates EDA HTML report
-│   ├── validator.py               # Schema validation + dataset versioning
-│   ├── monitor.py                 # Drift detection + rolling metrics
-│   └── scheduler.py               # Auto-refresh live data
+│   ├── merge_historical.py             # Master merge with leakage-free features
+│   ├── sync_live_files.py              # Copies historical to live CSVs
+│   ├── scheduler.py                    # Auto-refresh every 30 min
+│   ├── eda_generator.py                # Auto-generates EDA HTML report
+│   ├── validator.py                    # Schema validation + dataset versioning
+│   └── monitor.py                      # Drift detection + rolling metrics
 │
-├── models/                        # Trained model artifacts
-│   ├── best_model.pkl             # Best model (XGBoost v6)
-│   ├── scaler.pkl                 # StandardScaler
-│   ├── feature_cols.pkl           # Feature column list
-│   ├── model_metadata.json        # Version, MAPE, training info
-│   ├── model_comparison.csv       # ARIMA vs SVM vs XGBoost results
-│   ├── feature_importance.json    # Top feature importances
-│   ├── business_evaluation.json   # ₹ P&L simulation results
-│   ├── pestle_scenarios.json      # 7 PESTLE scenario results
-│   └── archive/                   # Previous model versions (rollback)
+├── models/                             # Trained model artifacts
+│   ├── best_model.pkl                  # Best model (XGBoost v7)
+│   ├── scaler.pkl                      # StandardScaler
+│   ├── feature_cols.pkl                # Feature column list
+│   ├── model_metadata.json             # Version, MAPE, training info
+│   ├── model_comparison.csv            # ARIMA vs SVM vs XGBoost results
+│   ├── feature_importance.json         # Top feature importances
+│   ├── business_evaluation.json        # P&L simulation results
+│   ├── pestle_scenarios.json           # 7 PESTLE scenario results
+│   └── archive/                        # Previous model versions (rollback)
 │
 ├── app/
-│   ├── app.py                     # Flask REST API (10 endpoints)
+│   ├── app.py                          # Flask REST API (12 endpoints)
 │   └── static/
-│       └── eda_report.html        # Auto-generated EDA dashboard
+│       └── eda_report.html             # Auto-generated EDA dashboard
 │
-├── run_pipeline.py                # End-to-end pipeline runner
-├── diagnose.py                    # Model diagnostic tool
-├── Dockerfile                     # Docker container definition
-├── docker-compose.yml             # Docker compose config
-├── requirements.txt               # Python dependencies
-└── README.md                      # This file
+├── config.py                           # Central config — reads from .env
+├── .env.example                        # API key template — safe to commit
+├── .env                                # Real API keys — gitignored
+├── run_pipeline.py                     # End-to-end pipeline runner
+├── diagnose.py                         # Model diagnostic tool
+├── Dockerfile                          # Docker + Chromium for Selenium
+├── docker-compose.yml                  # Docker compose config
+├── requirements.txt                    # Python dependencies
+└── README.md                           # This file
 ```
 
 ---
@@ -148,8 +173,8 @@ Group-05-IEX-Forecasting/
 | **2. Data Understanding** | ✅ | 105K records, 3 sources, EDA report, schema validation |
 | **3. Data Preparation** | ✅ | Option B merge, missing data handling, leakage-free features |
 | **4. Modelling** | ✅ | ARIMA + SVM + XGBoost, TimeSeriesSplit CV, hyperparameter tuning |
-| **5. Evaluation** | ✅ | MAPE/RMSE/MAE, business ₹ evaluation, PESTLE scenarios |
-| **6. Deployment** | ✅ | Flask API, Docker, 10 endpoints, model versioning |
+| **5. Evaluation** | ✅ | MAPE/RMSE/MAE, business Rs evaluation, PESTLE scenarios |
+| **6. Deployment** | ✅ | Flask API, Docker, AWS EC2, 12 endpoints, model versioning |
 | **Quality** | ✅ | Schema validation, drift detection, prediction logging, rollback |
 
 ---
@@ -175,7 +200,7 @@ All rolling statistics computed on **shifted MCP** — current price never appea
 | Price.xlsx extended data to 2021 (fake ffill 15-min) | MAPE 79% | Date range locked to scraped period only |
 | `seasonality = MCP - trend` used current MCP as feature | 49% feature importance, model saw the answer | Removed entirely |
 | `price_rolling_24h` included current MCP in rolling window | Inflated lag correlation | All rolling on `MCP.shift(1)` |
-| 6-month test split hit different price regime (₹4605 vs ₹3390) | MAPE 164% | 18-month training window keeps same regime |
+| 6-month test split hit different price regime (Rs4605 vs Rs3390) | MAPE 164% | 18-month training window keeps same regime |
 
 ---
 
@@ -183,7 +208,7 @@ All rolling statistics computed on **shifted MCP** — current price never appea
 
 | Model | Test MAPE | RMSE (Rs/MWh) | CV MAPE | Notes |
 |---|---|---|---|---|
-| **XGBoost** | **19.35%** | 114 | 21% | Best — handles non-linearity |
+| **XGBoost** | **20.65%** | 114 | 21% | Best — handles non-linearity |
 | SVM | 69.48% | — | 21.28% | Good CV, poor extrapolation |
 | ARIMA | 53.46% | — | — | Baseline, no exogenous features |
 
@@ -198,12 +223,12 @@ All rolling statistics computed on **shifted MCP** — current price never appea
 
 ## 🌍 PESTLE Scenario Analysis
 
-| Scenario | Avg MCP (Rs/MWh) | Δ vs Baseline |
+| Scenario | Avg MCP (Rs/MWh) | Change vs Baseline |
 |---|---|---|
 | Baseline (Current) | 3,630 | — |
 | Carbon Tax +20% | 3,651 | +21 |
 | Economic Recession -15% | 3,406 | -224 |
-| Heatwave +8°C | 3,637 | +7 |
+| Heatwave +8C | 3,637 | +7 |
 | Renewable Surge +30% | 3,406 | -224 |
 | Price Cap 8000 | 3,571 | -59 |
 | Monsoon Season | 3,548 | -82 |
@@ -218,32 +243,36 @@ All rolling statistics computed on **shifted MCP** — current price never appea
 git clone https://github.com/praveenp1118/Group-05-IEX-Forecasting.git
 cd Group-05-IEX-Forecasting
 
-# 2. Install dependencies
+# 2. Set up environment
+copy .env.example .env
+# Edit .env with your API keys if needed
+
+# 3. Install dependencies
 pip install -r requirements.txt
 
-# 3. Run pipeline (trains model, generates EDA)
+# 4. Run pipeline (trains model, generates EDA)
 python run_pipeline.py
 
-# 4. Start API
-python app/app.py
+# 5. Start API via Docker
+docker-compose up -d
 
-# 5. Open browser
+# 6. Open browser
 # http://localhost:5000
 ```
 
-### Docker Setup
+### Docker Commands
 ```bash
-# 1. Build image
-docker build -t group05-iex .
+# Build and run
+docker-compose up -d --build
 
-# 2. Run container
-docker-compose up -d
+# Check logs
+docker logs group05-iex-api --follow
 
-# 3. Check logs
-docker logs group05-iex-api
+# Trigger data refresh
+# http://localhost:5000/refresh
 
-# 4. Open browser
-# http://localhost:5000
+# Stop
+docker-compose down
 ```
 
 ---
@@ -252,24 +281,25 @@ docker logs group05-iex-api
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/` | GET | Project info + all endpoints |
-| `/health` | GET | Model version, MAPE, data freshness |
-| `/predict/sample` | GET | Single prediction using live data |
-| `/predict` | POST | Prediction with custom feature override |
+| `/` | GET | HTML home page with clickable endpoint links |
+| `/health` | GET | Model version, MAPE, live data freshness |
+| `/predict` | GET/POST | **Interactive HTML form** — pre-filled with live data, adjust & predict |
+| `/predict/sample` | GET | Quick single prediction using live data (JSON) |
 | `/forecast/24h` | GET | 96-block forecast + BUY/SELL/HOLD signals |
-| `/data/latest` | GET | IEX + weather + commodity freshness |
 | `/feature-importance` | GET | Top 10 model drivers |
 | `/trading-simulation` | GET | Historical P&L from prediction log |
+| `/data/latest` | GET | IEX + weather + commodity freshness status |
 | `/eda` | GET | EDA dashboard (HTML) |
 | `/monitoring` | GET | Drift detection + rolling MAPE |
-| `/retrain` | GET | Trigger background retraining |
+| `/refresh` | GET | **Trigger immediate live data refresh** |
+| `/retrain` | GET | Trigger background model retraining |
 
 ### Sample Response — `/forecast/24h`
 ```json
 {
   "model": "XGBoost",
-  "version": "v6",
-  "mape": "19.35%",
+  "version": "v7",
+  "mape": "20.65%",
   "business_metrics": {
     "avg_mcp_24h": 3630,
     "estimated_savings": 4200000,
@@ -287,12 +317,30 @@ docker logs group05-iex-api
 
 ---
 
+## 🔒 Security
+
+API keys managed via `.env` — never hardcoded in source:
+
+```bash
+# .env (gitignored — never committed)
+OPENWEATHER_API_KEY=your_real_key
+
+# .env.example (committed — safe template for teammates)
+OPENWEATHER_API_KEY=your_key_here
+```
+
+`config.py` loads `.env` at startup and provides keys to all modules.
+
+---
+
 ## 📈 Business Value
 
 - **63.8% improvement** over ARIMA baseline
-- **₹7.7 Crore simulated P&L** over 3-month test period (100 MW volume)
+- **Rs 7.7 Crore simulated P&L** over 3-month test period (100 MW volume)
 - **24-hour forecast** with per-block BUY/SELL/HOLD signals
-- **Real-time data** — auto-refreshes IEX + weather + commodities every 45 minutes
+- **Live AWS deployment** — accessible from anywhere at `http://13.236.44.97:5000`
+- **Auto-refresh** — IEX + weather + commodities updated every 30 minutes
+- **Interactive predictor** — change inputs in browser, get instant price forecast
 - **Model rollback** — previous versions archived in `models/archive/`
 
 ---
@@ -307,7 +355,7 @@ docker logs group05-iex-api
 
 | Source | Data | Period |
 |---|---|---|
-| IEX Website (scraped) | RTM 15-min MCP, volumes | Feb 2023 – present |
+| IEX Website (Selenium scraper) | RTM 15-min MCP, volumes | Feb 2023 – present |
 | Mendeley (Price.xlsx) | Hourly MCP + demand | 2021–2023 (gap fill only) |
 | NASA POWER API | Weather — 8 Indian cities | 3 years |
 | Yahoo Finance | Crude oil, natural gas | 3 years |
@@ -315,4 +363,4 @@ docker logs group05-iex-api
 
 ---
 
-*Built with CRISP-ML(Q) framework | ISB AMPBA Foundation Project*
+*Built with CRISP-ML(Q) framework | ISB AMPBA Foundation Project | Deployed on AWS EC2*

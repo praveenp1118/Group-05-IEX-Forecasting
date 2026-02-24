@@ -285,29 +285,75 @@ def business_metrics(forecasts):
 
 @app.route("/")
 def home():
-    return jsonify({
-        "project":    "IEX RTM Electricity Price Forecasting",
-        "group":      "Group 05 — ISB AMPBA",
-        "model":      state["model_name"],
-        "version":    state["version"],
-        "mape":       f"{state['mape']:.2f}%" if state["mape"] else "N/A",
-        "loaded_at":  state["loaded_at"],
-        "status":     "running" if state["model"] else "model_not_loaded",
-        "endpoints": {
-            "GET  /":                   "This page — project info + all endpoints",
-            "GET  /health":             "System health + data freshness",
-            "GET  /predict/sample":     "Single prediction using live data",
-            "POST /predict":            "Single prediction (JSON body to override features)",
-            "GET  /forecast/24h":       "96-block 24h forecast with confidence + trading signals",
-            "GET  /data/latest":        "Live data status from IEX + weather + commodities",
-            "GET  /feature-importance": "Top 10 features driving model predictions",
-            "GET  /trading-simulation": "Historical P&L simulation from prediction log",
-            "GET  /eda":                "EDA dashboard (HTML report)",
-            "GET  /monitoring":         "Drift detection + rolling MAPE",
-            "GET  /refresh":            "Trigger immediate live data refresh",
-            "GET  /retrain":             "Trigger model retraining in background",
-        }
-    })
+    mape_str = f"{state['mape']:.2f}%" if state["mape"] else "N/A"
+    status   = "running" if state["model"] else "model_not_loaded"
+
+    endpoints = [
+        ("/health",             "System health + data freshness"),
+        ("/predict/sample",     "Single prediction using live data"),
+        ("/forecast/24h",       "96-block 24h forecast with confidence + trading signals"),
+        ("/feature-importance", "Top 10 features driving model predictions"),
+        ("/trading-simulation", "Historical P&L simulation from prediction log"),
+        ("/data/latest",        "Live data status — IEX + weather + commodities"),
+        ("/eda",                "EDA dashboard (HTML report)"),
+        ("/monitoring",         "Drift detection + rolling MAPE"),
+        ("/refresh",            "Trigger immediate live data refresh"),
+        ("/retrain",            "Trigger model retraining in background"),
+    ]
+    rows = "".join(f"""
+        <tr>
+          <td><a href="{ep}" target="_blank">{ep}</a></td>
+          <td>{desc}</td>
+        </tr>""" for ep, desc in endpoints)
+
+    html = f"""<!DOCTYPE html>
+<html>
+<head>
+  <title>Group 05 — IEX Forecasting API</title>
+  <style>
+    body   {{ font-family: Arial, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; background: #f5f5f5; }}
+    h1     {{ color: #1a1a2e; border-bottom: 3px solid #e94560; padding-bottom: 10px; }}
+    h2     {{ color: #16213e; margin-top: 30px; }}
+    .badges {{ display: flex; gap: 10px; margin: 15px 0; flex-wrap: wrap; }}
+    .badge  {{ background: #1a1a2e; color: white; padding: 6px 14px; border-radius: 20px; font-size: 14px; }}
+    .badge.green {{ background: #27ae60; }}
+    .badge.blue  {{ background: #2980b9; }}
+    table  {{ width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }}
+    th     {{ background: #1a1a2e; color: white; padding: 12px 16px; text-align: left; }}
+    td     {{ padding: 12px 16px; border-bottom: 1px solid #eee; }}
+    tr:hover td {{ background: #f0f7ff; }}
+    a      {{ color: #2980b9; font-weight: bold; text-decoration: none; font-family: monospace; font-size: 15px; }}
+    a:hover {{ text-decoration: underline; }}
+    .footer {{ margin-top: 30px; color: #888; font-size: 13px; text-align: center; }}
+    .post  {{ background: #fff3cd; padding: 12px 16px; border-bottom: 1px solid #eee; }}
+    .post td:first-child {{ color: #e67e22; font-weight: bold; font-family: monospace; font-size: 15px; }}
+  </style>
+</head>
+<body>
+  <h1>⚡ IEX RTM Electricity Price Forecasting</h1>
+  <div class="badges">
+    <span class="badge green">● {status.upper()}</span>
+    <span class="badge blue">Model: {state['model_name']} {state['version']}</span>
+    <span class="badge">MAPE: {mape_str}</span>
+    <span class="badge">Group 05 — ISB AMPBA</span>
+  </div>
+
+  <h2>🔌 API Endpoints</h2>
+  <table>
+    <tr><th>Endpoint</th><th>Description</th></tr>
+    {rows}
+    <tr class="post">
+      <td><a href="/predict" target="_blank" style="color:#e67e22">/predict</a></td>
+      <td>Interactive prediction form — adjust inputs and get live price forecast</td>
+    </tr>
+  </table>
+
+  <div class="footer">
+    ISB AMPBA Foundation Project &nbsp;|&nbsp; Loaded at {state['loaded_at']}
+  </div>
+</body>
+</html>"""
+    return html
 
 @app.route("/health")
 def health():
@@ -326,23 +372,20 @@ def health():
         "timestamp":       datetime.now().isoformat(),
     })
 
-@app.route("/predict", methods=["GET","POST"])
 @app.route("/predict/sample")
-def predict():
+def predict_sample():
     if state["model"] is None:
-        return jsonify({"error":"Model not loaded — run run_pipeline.py first"}), 503
+        return jsonify({"error":"Model not loaded"}), 503
     fresh    = ensure_fresh()
     features = load_live_features()
-    if request.method=="POST" and request.json:
-        features.update(request.json)
     pred     = predict_price(features)
-    vol      = features.get("price_volatility",200)
+    vol      = features.get("price_volatility", 200)
     conf     = confidence(pred, vol, 1)
     prev     = features.get("mcp_lag_1h", pred)
     sig, action = signal(pred, prev)
     log_pred(features, pred, conf, state["version"], 1)
     return jsonify({
-        "predicted_mcp_rs_mwh": round(pred,2),
+        "predicted_mcp_rs_mwh": round(pred, 2),
         "confidence":           conf,
         "trading_signal":       sig,
         "action":               action,
@@ -352,6 +395,131 @@ def predict():
         "data_freshness":       fresh,
         "timestamp":            datetime.now().isoformat(),
     })
+
+@app.route("/predict", methods=["GET", "POST"])
+def predict():
+    if state["model"] is None:
+        return jsonify({"error":"Model not loaded"}), 503
+    fresh    = ensure_fresh()
+    features = load_live_features()
+    result   = None
+    if request.method == "POST":
+        overrides = request.form if request.form else {}
+        json_data = request.json if request.is_json else {}
+        for k, v in {**overrides, **json_data}.items():
+            try: features[k] = float(v)
+            except: pass
+        pred  = predict_price(features)
+        vol   = features.get("price_volatility", 200)
+        conf  = confidence(pred, vol, 1)
+        prev  = features.get("mcp_lag_1h", pred)
+        sig, action = signal(pred, prev)
+        log_pred(features, pred, conf, state["version"], 1)
+        if request.is_json:
+            return jsonify({"predicted_mcp_rs_mwh": round(pred,2),
+                "confidence": conf, "trading_signal": sig, "action": action})
+        result = {"pred": round(pred,2), "conf": conf, "sig": sig, "action": action}
+    f = features
+    sig_color = {"BUY":"#27ae60","SELL":"#e74c3c","HOLD":"#f39c12"}.get(
+        result["sig"] if result else "HOLD", "#888")
+    result_html = ""
+    if result:
+        result_html = f"""
+        <div class="result-box">
+          <h2>Prediction Result</h2>
+          <div class="result-grid">
+            <div class="result-item">
+              <div class="result-label">Predicted MCP</div>
+              <div class="result-value">Rs {result['pred']:,.2f} /MWh</div>
+            </div>
+            <div class="result-item">
+              <div class="result-label">Confidence</div>
+              <div class="result-value">{result['conf']}</div>
+            </div>
+            <div class="result-item">
+              <div class="result-label">Signal</div>
+              <div class="result-value" style="color:{sig_color};font-size:2em">{result['sig']}</div>
+            </div>
+            <div class="result-item">
+              <div class="result-label">Action</div>
+              <div class="result-value" style="font-size:0.9em">{result['action']}</div>
+            </div>
+          </div>
+        </div>"""
+    html = f"""<!DOCTYPE html>
+<html><head><title>IEX Price Predictor</title>
+<style>
+body{{font-family:Arial,sans-serif;max-width:800px;margin:40px auto;padding:0 20px;background:#f5f5f5}}
+h1{{color:#1a1a2e;border-bottom:3px solid #e94560;padding-bottom:10px}}
+h2{{color:#16213e}}
+.form-grid{{display:grid;grid-template-columns:1fr 1fr;gap:15px;margin:20px 0}}
+.form-group{{background:white;padding:15px;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,0.08)}}
+label{{display:block;font-size:13px;color:#555;margin-bottom:5px;font-weight:bold}}
+input{{width:100%;padding:10px;border:1px solid #ddd;border-radius:6px;font-size:15px;box-sizing:border-box}}
+.hint{{font-size:11px;color:#999;margin-top:3px}}
+.btn{{background:#e94560;color:white;border:none;padding:14px 40px;font-size:16px;border-radius:8px;cursor:pointer;width:100%;margin-top:10px}}
+.btn:hover{{background:#c0392b}}
+.result-box{{background:#1a1a2e;color:white;border-radius:12px;padding:25px;margin:25px 0}}
+.result-grid{{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:15px}}
+.result-item{{background:rgba(255,255,255,0.1);padding:15px;border-radius:8px;text-align:center}}
+.result-label{{font-size:12px;color:#aaa;margin-bottom:8px}}
+.result-value{{font-size:1.6em;font-weight:bold}}
+.back{{display:inline-block;margin-top:15px;color:#2980b9;text-decoration:none}}
+.badge{{background:#27ae60;color:white;font-size:12px;padding:3px 10px;border-radius:10px;margin-left:8px}}
+</style></head>
+<body>
+<h1>IEX RTM Price Predictor <span class="badge">LIVE</span></h1>
+<p style="color:#666">Pre-filled with live market data. Adjust and click Predict.</p>
+{result_html}
+<form method="POST">
+  <h2>Input Features</h2>
+  <div class="form-grid">
+    <div class="form-group">
+      <label>Last Hour MCP (Rs/MWh)</label>
+      <input type="number" name="mcp_lag_1h" value="{f.get('mcp_lag_1h',3500):.1f}" step="0.1">
+      <div class="hint">Most recent 15-min clearing price</div>
+    </div>
+    <div class="form-group">
+      <label>24h Ago MCP (Rs/MWh)</label>
+      <input type="number" name="mcp_lag_24h" value="{f.get('mcp_lag_24h',3500):.1f}" step="0.1">
+      <div class="hint">Same time slot yesterday</div>
+    </div>
+    <div class="form-group">
+      <label>Hour of Day (0-23)</label>
+      <input type="number" name="hour" value="{f.get('hour', datetime.now().hour)}" min="0" max="23">
+      <div class="hint">Current hour</div>
+    </div>
+    <div class="form-group">
+      <label>Day of Week (0=Mon, 6=Sun)</label>
+      <input type="number" name="day_of_week" value="{f.get('day_of_week', datetime.now().weekday())}" min="0" max="6">
+      <div class="hint">0=Monday, 6=Sunday</div>
+    </div>
+    <div class="form-group">
+      <label>Temperature Delhi (C)</label>
+      <input type="number" name="temp_delhi" value="{f.get('temp_delhi',28):.1f}" step="0.1">
+      <div class="hint">Drives cooling demand</div>
+    </div>
+    <div class="form-group">
+      <label>Crude Oil (USD/barrel)</label>
+      <input type="number" name="crude_oil_usd" value="{f.get('crude_oil_usd',75):.2f}" step="0.1">
+      <div class="hint">Brent crude price</div>
+    </div>
+    <div class="form-group">
+      <label>Rolling 24h Avg MCP</label>
+      <input type="number" name="price_rolling_24h" value="{f.get('price_rolling_24h',3500):.1f}" step="0.1">
+      <div class="hint">24-hour rolling average</div>
+    </div>
+    <div class="form-group">
+      <label>Price Volatility</label>
+      <input type="number" name="price_volatility" value="{f.get('price_volatility',200):.1f}" step="0.1">
+      <div class="hint">Std dev of recent prices</div>
+    </div>
+  </div>
+  <button type="submit" class="btn">Predict Clearing Price</button>
+</form>
+<a class="back" href="/">Back to API Home</a>
+</body></html>"""
+    return html
 
 @app.route("/forecast/24h")
 def forecast_24h():
