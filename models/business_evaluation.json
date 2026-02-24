@@ -1,0 +1,11 @@
+{
+  "best_model": "XGBoost",
+  "test_mape_pct": 20.65,
+  "test_rmse_rs_mwh": 991.11,
+  "total_simulated_pnl_inr": 75747753.0,
+  "savings_vs_peak_buying_inr": 1682470537.0,
+  "improvement_over_arima_pct": 55.2,
+  "total_trades": 4875,
+  "trade_volume_mw": 100,
+  "training_months": 18
+}

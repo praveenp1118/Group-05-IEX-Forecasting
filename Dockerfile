@@ -1,32 +1,29 @@
-# Group 05 — IEX RTM Price Forecasting
-# Docker image for Flask API deployment
-
 FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies
+# Install system deps + Chrome for Selenium
 RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
+    gcc g++ curl wget gnupg unzip \
+    chromium chromium-driver \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first (layer caching)
+# Set Chrome path for Selenium
+ENV CHROME_BIN=/usr/bin/chromium
+ENV CHROMEDRIVER_PATH=/usr/bin/chromedriver
+
+# Install Python deps
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy entire project
+# Copy project
 COPY . .
 
-# Create necessary directories
+# Create dirs
 RUN mkdir -p data models app/static
 
-# Expose Flask port
 EXPOSE 5000
-
-# Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
-# Start Flask API
 CMD ["python", "app/app.py"]

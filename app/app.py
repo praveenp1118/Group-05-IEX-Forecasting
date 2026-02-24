@@ -11,14 +11,19 @@ import numpy as np
 from datetime import datetime, timedelta
 
 # ── Path fix — works locally AND in Docker ────────────────────
-# In Docker: PYTHONPATH=/app handles it
-# Locally:   we add project root manually
 _THIS_FILE = os.path.abspath(__file__)
-_APP_DIR   = os.path.dirname(_THIS_FILE)          # .../app/
-_BASE_DIR  = os.path.dirname(_APP_DIR)             # .../ (project root)
+_APP_DIR   = os.path.dirname(_THIS_FILE)
+_BASE_DIR  = os.path.dirname(_APP_DIR)
 for p in [_BASE_DIR, _APP_DIR]:
     if p not in sys.path:
         sys.path.insert(0, p)
+
+# Load .env keys via config.py
+try:
+    from config import load_env
+    load_env()
+except Exception as e:
+    print(f"Config load: {e}")
 
 app = Flask(__name__)
 
@@ -75,21 +80,36 @@ def model_watcher():
 # ── Freshness Helpers ─────────────────────────────────────────
 
 def file_age_minutes(filepath):
-    if not os.path.exists(filepath): return 9999
-    try:
-        df = pd.read_csv(filepath)
-        # Remove rows with no useful timestamp to avoid NaN conversion errors
-        # Try columns in order of reliability
-        for col in ["scrape_timestamp", "timestamp", "datetime"]:
-            if col not in df.columns: continue
-            series = pd.to_datetime(df[col], errors="coerce").dropna()
-            if len(series) == 0: continue
-            latest = series.iloc[-1]
-            age    = (datetime.now() - latest).total_seconds() / 60
-            return max(0, int(age))
-        # Fallback to file modification time
-        return int((datetime.now().timestamp() - os.path.getmtime(filepath)) / 60)
-    except: return 9999
+    """
+    Check file age — also checks fallback files if primary not found.
+    e.g. commodities_live.csv → commodities_historical.csv
+         iex_live.csv → iex_historical.csv
+    """
+    # Build list of files to check (primary + fallbacks)
+    candidates = [filepath]
+    fname = os.path.basename(filepath)
+    fdir  = os.path.dirname(filepath)
+    if "_live" in fname:
+        fallback = os.path.join(fdir, fname.replace("_live", "_historical"))
+        candidates.append(fallback)
+
+    for fpath in candidates:
+        if not os.path.exists(fpath): continue
+        try:
+            df = pd.read_csv(fpath)
+            if len(df) == 0: continue
+            # Try timestamp columns
+            for col in ["scrape_timestamp", "timestamp", "datetime", "date"]:
+                if col not in df.columns: continue
+                series = pd.to_datetime(df[col], errors="coerce").dropna()
+                if len(series) == 0: continue
+                latest = series.iloc[-1]
+                age    = (datetime.now() - latest).total_seconds() / 60
+                return max(0, int(age))
+            # Fallback: file modification time
+            return int((datetime.now().timestamp() - os.path.getmtime(fpath)) / 60)
+        except: continue
+    return 9999
 
 def freshness_label(age):
     if age < FRESHNESS_WARN:  return "FRESH"
@@ -284,7 +304,8 @@ def home():
             "GET  /trading-simulation": "Historical P&L simulation from prediction log",
             "GET  /eda":                "EDA dashboard (HTML report)",
             "GET  /monitoring":         "Drift detection + rolling MAPE",
-            "GET  /retrain":            "Trigger model retraining in background",
+            "GET  /refresh":            "Trigger immediate live data refresh",
+            "GET  /retrain":             "Trigger model retraining in background",
         }
     })
 
@@ -442,6 +463,27 @@ def monitoring():
             "note": f"Full monitoring unavailable: {e}",
         })
 
+@app.route("/refresh")
+def refresh_data():
+    """Trigger immediate live data refresh"""
+    def _refresh():
+        try:
+            from data_pipeline.scheduler import refresh_all
+            refresh_all()
+        except Exception as e:
+            import subprocess
+            for s in ["iex_scraper.py","scraper_iex.py"]:
+                sp = os.path.join(_BASE_DIR,"data_pipeline",s)
+                if os.path.exists(sp):
+                    subprocess.run(["python",sp],timeout=120,
+                                 capture_output=True,cwd=_BASE_DIR)
+                    break
+    threading.Thread(target=_refresh, daemon=True).start()
+    return jsonify({
+        "message": "Live data refresh triggered",
+        "note":    "Check /health in 60s to see updated freshness"
+    })
+
 @app.route("/retrain", methods=["GET","POST"])
 def retrain():
     def _run():
@@ -455,6 +497,32 @@ def retrain():
 def startup():
     load_model()
     threading.Thread(target=model_watcher, daemon=True).start()
+
+    # Start live data scheduler — refreshes IEX + weather + commodities every 30min
+    try:
+        from data_pipeline.scheduler import start_scheduler
+        start_scheduler()
+    except Exception as e:
+        print(f"Scheduler error: {e}")
+        # Fallback inline scheduler if module not found
+        def _fallback_scheduler():
+            import subprocess, time
+            time.sleep(60)
+            while True:
+                try:
+                    scripts = ["iex_scraper.py","scraper_iex.py"]
+                    for s in scripts:
+                        sp = os.path.join(_BASE_DIR,"data_pipeline",s)
+                        if os.path.exists(sp):
+                            subprocess.run(["python",sp],timeout=120,
+                                         capture_output=True,cwd=_BASE_DIR)
+                            break
+                except: pass
+                time.sleep(1800)
+        threading.Thread(target=_fallback_scheduler, daemon=True).start()
+        print("Fallback scheduler started ✅")
+
+    # Generate EDA report
     try:
         from data_pipeline.eda_generator import generate_and_save
         generate_and_save(); print("EDA ready ✅")

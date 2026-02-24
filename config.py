@@ -1,53 +1,32 @@
 """
-config.py
-Project Configuration - Group 05 IEX Forecasting
-ISB AMPBA - Final Submission
+config.py - Central config, reads from .env
+Place in: D:\Group-05-IEX-Forecasting\config.py
 """
+import os
+from pathlib import Path
 
-# ── OpenWeatherMap API ────────────────────────────────────────
-OPENWEATHER_API_KEY = "6a4654121b86dec0ccc0f8a20961401c"
+# Load .env file if it exists
+def load_env():
+    env_path = Path(__file__).parent / ".env"
+    if env_path.exists():
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    key, val = line.split("=", 1)
+                    os.environ.setdefault(key.strip(), val.strip())
 
-# 8 major Indian cities as committed in mid-review
-CITIES = {
-    'Delhi':     {'lat': 28.6139, 'lon': 77.2090},
-    'Mumbai':    {'lat': 19.0760, 'lon': 72.8777},
-    'Bangalore': {'lat': 12.9716, 'lon': 77.5946},
-    'Chennai':   {'lat': 13.0827, 'lon': 80.2707},
-    'Kolkata':   {'lat': 22.5726, 'lon': 88.3639},
-    'Hyderabad': {'lat': 17.3850, 'lon': 78.4867},
-    'Pune':      {'lat': 18.5204, 'lon': 73.8567},
-    'Ahmedabad': {'lat': 23.0225, 'lon': 72.5714},
-}
+load_env()
 
-# Primary city for weather features (IEX headquartered in Delhi)
-PRIMARY_CITY = 'Delhi'
+# API Keys — read from environment, never hardcoded
+OPENWEATHER_API_KEY  = os.getenv("OPENWEATHER_API_KEY", "")
+IEX_API_KEY          = os.getenv("IEX_API_KEY", "")
+AWS_ACCESS_KEY_ID    = os.getenv("AWS_ACCESS_KEY_ID", "")
+AWS_SECRET_ACCESS_KEY= os.getenv("AWS_SECRET_ACCESS_KEY", "")
+AWS_REGION           = os.getenv("AWS_REGION", "ap-south-1")
+FLASK_SECRET_KEY     = os.getenv("FLASK_SECRET_KEY", "dev-secret-change-in-prod")
 
-# ── Data Settings ─────────────────────────────────────────────
-DATA_FILE        = "data/Price.xlsx"
-RESAMPLE_FREQ    = "15T"   # 15-minute intervals
-TEST_SIZE        = 0.2
-RANDOM_STATE     = 42
-
-# ── Model Settings ────────────────────────────────────────────
-ARIMA_ORDER      = (2, 1, 2)   # (p, d, q)
-XGBOOST_PARAMS   = {
-    'n_estimators':  300,
-    'learning_rate': 0.05,
-    'max_depth':     6,
-    'subsample':     0.8,
-    'random_state':  42
-}
-SVM_PARAMS = {
-    'kernel': 'rbf',
-    'C':      100,
-    'epsilon': 0.1
-}
-
-# ── Success Criteria (from mid-review) ───────────────────────
-TARGET_MAPE             = 5.0    # ≤5% MAPE
-TARGET_IMPROVEMENT      = 25.0   # ≥25% over baseline
-CONFIDENCE_THRESHOLD    = 0.80   # 80% signal confidence
-
-# ── Flask API ─────────────────────────────────────────────────
-API_HOST = "0.0.0.0"
-API_PORT = 5000
+# Paths
+BASE_DIR   = Path(__file__).parent
+DATA_DIR   = BASE_DIR / "data"
+MODELS_DIR = BASE_DIR / "models"

@@ -1,104 +1,96 @@
 """
-scheduler.py
-Runs all data scrapers on schedule:
-- IEX + Weather: every 15 minutes
-- Renewable + Commodities: every 24 hours
-- Preprocessor: after every scrape cycle
-Group 05 - ISB AMPBA
+scheduler.py - Auto-refresh live data every 30 minutes
+Place in: D:\Group-05-IEX-Forecasting\data_pipeline\scheduler.py
 """
-
-import schedule
-import time
-import threading
+import threading, time, os, sys, subprocess
 from datetime import datetime
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from data_pipeline.scraper_iex import scrape_iex, save_iex_data
-from data_pipeline.scraper_weather import scrape_weather_all_cities, save_weather_data
-from data_pipeline.scraper_posoco import scrape_renewable, save_renewable, scrape_commodities, save_commodities
-from data_pipeline.preprocessor import run_preprocessing
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, BASE_DIR)
 
-def run_15min_pipeline():
-    """Runs every 15 minutes — IEX + Weather"""
-    print(f"\n{'='*50}")
-    print(f"15-MIN PIPELINE — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"{'='*50}")
+REFRESH_INTERVAL = 30 * 60  # 30 minutes
 
-    # IEX scrape
+# ── Find actual scraper file ──────────────────────────────────
+def find_scraper(candidates):
+    """Return first existing script from candidate list"""
+    for name in candidates:
+        path = os.path.join(BASE_DIR, "data_pipeline", name)
+        if os.path.exists(path):
+            return path
+    return None
+
+def run_script(path, label):
+    if not path:
+        print(f"  ⚠️  {label}: scraper not found")
+        return False
     try:
-        iex_record = scrape_iex()
-        save_iex_data(iex_record)
+        result = subprocess.run(
+            ["python", path],
+            timeout=180, capture_output=True,
+            text=True, cwd=BASE_DIR
+        )
+        if result.returncode == 0:
+            print(f"  ✅ {label} done")
+            return True
+        else:
+            print(f"  ❌ {label}: {result.stderr[:300]}")
+            return False
+    except subprocess.TimeoutExpired:
+        print(f"  ⏰ {label} timed out"); return False
     except Exception as e:
-        print(f"IEX scraper error: {e}")
+        print(f"  ❌ {label}: {e}"); return False
 
-    # Weather scrape
+def refresh_all():
+    print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Refreshing live data...")
+
+    # IEX scraper — confirmed filename
+    iex = find_scraper(["scraper_iex.py", "iex_scraper.py", "fetch_historical_iex.py"])
+    run_script(iex, "IEX")
+
+    # Weather scraper — confirmed filename
+    wx = find_scraper(["scraper_weather.py", "fetch_historical_weather.py"])
+    run_script(wx, "Weather")
+
+    # Commodities scraper — confirmed filename
+    com = find_scraper(["fetch_historical_commodities.py", "scraper_commodities.py"])
+    run_script(com, "Commodities")
+
+    # Sync historical → live files so health check shows FRESH
     try:
-        weather_records = scrape_weather_all_cities()
-        save_weather_data(weather_records)
+        sync_script = os.path.join(BASE_DIR, "data_pipeline", "sync_live_files.py")
+        if os.path.exists(sync_script):
+            subprocess.run(["python", sync_script], timeout=30,
+                         capture_output=True, cwd=BASE_DIR)
+            print("  ✅ Live files synced")
     except Exception as e:
-        print(f"Weather scraper error: {e}")
+        print(f"  Sync error: {e}")
 
-    # Preprocess after every scrape
-    try:
-        run_preprocessing()
-    except Exception as e:
-        print(f"Preprocessor error: {e}")
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Refresh complete\n")
 
-    print(f"15-min cycle complete — next run in 15 mins")
+def scheduler_loop():
+    print(f"[Scheduler] First refresh in 60s, then every 30min")
+    # Show what scrapers were found on startup
+    for label, candidates in [
+        ("IEX",         ["scraper_iex.py","iex_scraper.py","iex_rtm_scraper.py"]),
+        ("Weather",     ["scraper_weather.py","fetch_live_weather.py"]),
+        ("Commodities", ["fetch_historical_commodities.py","scraper_commodities.py"]),
+    ]:
+        found = find_scraper(candidates)
+        print(f"  {label}: {os.path.basename(found) if found else 'NOT FOUND'}")
 
-def run_daily_pipeline():
-    """Runs once daily — Renewable + Commodities"""
-    print(f"\n{'='*50}")
-    print(f"DAILY PIPELINE — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"{'='*50}")
-
-    try:
-        r = scrape_renewable(); save_renewable(r)
-    except Exception as e:
-        print(f"Renewable scraper error: {e}")
-
-    try:
-        c = scrape_commodities(); save_commodities(c)
-    except Exception as e:
-        print(f"Commodities scraper error: {e}")
+    time.sleep(60)
+    while True:
+        try:
+            refresh_all()
+        except Exception as e:
+            print(f"[Scheduler] Error: {e}")
+        time.sleep(REFRESH_INTERVAL)
 
 def start_scheduler():
-    """Start the scheduler in background thread"""
-    print("Starting data pipeline scheduler...")
-    print("  15-min jobs: IEX + Weather + Preprocessor")
-    print("  Daily jobs : Renewable + Commodities")
-
-    # Run immediately on start
-    threading.Thread(target=run_15min_pipeline, daemon=True).start()
-    threading.Thread(target=run_daily_pipeline, daemon=True).start()
-
-    # Schedule recurring jobs
-    schedule.every(15).minutes.do(
-        lambda: threading.Thread(target=run_15min_pipeline, daemon=True).start()
-    )
-    schedule.every(24).hours.do(
-        lambda: threading.Thread(target=run_daily_pipeline, daemon=True).start()
-    )
-
-    # Run scheduler in background thread
-    def run_schedule():
-        while True:
-            schedule.run_pending()
-            time.sleep(30)
-
-    scheduler_thread = threading.Thread(target=run_schedule, daemon=True)
-    scheduler_thread.start()
-    print("Scheduler started — running in background")
-    return scheduler_thread
+    t = threading.Thread(target=scheduler_loop, daemon=True)
+    t.start()
+    print("✅ Scheduler started — live data refreshes every 30min")
+    return t
 
 if __name__ == "__main__":
-    # Standalone mode — keeps running
-    start_scheduler()
-    print("Scheduler running. Press Ctrl+C to stop.")
-    try:
-        while True:
-            time.sleep(60)
-    except KeyboardInterrupt:
-        print("Scheduler stopped.")
+    refresh_all()

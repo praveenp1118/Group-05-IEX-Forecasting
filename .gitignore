@@ -1,6 +1,36 @@
-models/ 
-"__pycache__/" 
-"*.pyc" 
-".env" 
-"*.log" 
-"models/archive/" 
+# Environment variables - NEVER commit
+.env
+*.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Model archives (large files)
+models/archive/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+*.log
+prediction_log.csv
+alerts_log.csv
+monitor_log.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Large data files (keep historical CSVs but ignore huge ones)
+data/master_training_data.csv

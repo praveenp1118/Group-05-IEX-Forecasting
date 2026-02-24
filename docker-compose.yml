@@ -7,10 +7,13 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      # Mount data + models so they persist outside container
+      # Data + models persist on your disk, not inside container
       - ./data:/app/data
       - ./models:/app/models
       - ./app/static:/app/app/static
+    env_file:
+      # Reads your .env file — keys never baked into image
+      - .env
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
@@ -20,5 +23,4 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 15s
-
+      start_period: 20s

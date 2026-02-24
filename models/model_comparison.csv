@@ -1,0 +1,4 @@
+model,mape,rmse,mae,cv_mape_mean,cv_mape_std,is_best,version,trained_at
+ARIMA,46.1344,2140.55,1227.65,,,False,v7,2026-02-24 02:07:36
+SVM,68.2478,2006.78,1546.62,22.27,2.53,False,v7,2026-02-24 02:07:36
+XGBoost,20.6546,991.11,590.28,52.67,38.93,True,v7,2026-02-24 02:07:36

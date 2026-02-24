@@ -1,0 +1,44 @@
+{
+  "Baseline (Current)": {
+    "avg_mcp": 3698.14,
+    "peak_mcp": 11144.49,
+    "min_mcp": 0.0,
+    "volatility": 1800.64
+  },
+  "P \u2014 Policy: Carbon Tax +20%": {
+    "avg_mcp": 3738.14,
+    "peak_mcp": 11274.73,
+    "min_mcp": 0.0,
+    "volatility": 1817.73
+  },
+  "E \u2014 Economic: Recession -15%": {
+    "avg_mcp": 3492.5,
+    "peak_mcp": 10856.03,
+    "min_mcp": 0.0,
+    "volatility": 1723.45
+  },
+  "S \u2014 Social: Heatwave +8\u00b0C": {
+    "avg_mcp": 3689.92,
+    "peak_mcp": 11126.89,
+    "min_mcp": 0.0,
+    "volatility": 1770.99
+  },
+  "T \u2014 Technology: Renewable +30%": {
+    "avg_mcp": 3492.5,
+    "peak_mcp": 10856.03,
+    "min_mcp": 0.0,
+    "volatility": 1723.45
+  },
+  "L \u2014 Legal: Price Cap 8000": {
+    "avg_mcp": 3634.9,
+    "peak_mcp": 8000.0,
+    "min_mcp": 0.0,
+    "volatility": 1610.51
+  },
+  "E2 \u2014 Environment: Monsoon": {
+    "avg_mcp": 3596.25,
+    "peak_mcp": 11001.32,
+    "min_mcp": 0.0,
+    "volatility": 1805.86
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "best_model": "XGBoost",
+  "version": "v7",
+  "mape": 20.654614902853634,
+  "trained_at": "2026-02-24T02:07:36.261420",
+  "n_features": 36,
+  "training_months": 18,
+  "leaky_removed": [
+    "seasonality",
+    "mcp_lag_1h_raw",
+    "trend"
+  ],
+  "business": {
+    "best_model": "XGBoost",
+    "test_mape_pct": 20.65,
+    "test_rmse_rs_mwh": 991.11,
+    "total_simulated_pnl_inr": 75747753.0,
+    "savings_vs_peak_buying_inr": 1682470537.0,
+    "improvement_over_arima_pct": 55.2,
+    "total_trades": 4875,
+    "trade_volume_mw": 100,
+    "training_months": 18
+  },
+  "top_features": {
+    "mcp_lag_1h": 0.3266628682613373,
+    "mcp_lag_24h": 0.19363683462142944,
+    "day_of_week": 0.04531719535589218,
+    "mcp_lag_48h": 0.03618311882019043,
+    "price_momentum": 0.029228126630187035
+  },
+  "all_models": {
+    "ARIMA": {
+      "mape": 46.13435270028385,
+      "rmse": 2140.5511389137923,
+      "cv_mape": null
+    },
+    "SVM": {
+      "mape": 68.24784078978817,
+      "rmse": 2006.784741435045,
+      "cv_mape": 22.27
+    },
+    "XGBoost": {
+      "mape": 20.654614902853634,
+      "rmse": 991.1115393943835,
+      "cv_mape": 52.67
+    }
+  }
+}
