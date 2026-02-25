@@ -1026,57 +1026,319 @@ def pestle():
 # ══════════════════════════════════════════════════════════════
 @app.route("/monitoring")
 def monitoring():
-    try:
-        from data_pipeline.monitor import run_all_checks
-        data = run_all_checks()
-    except Exception as e:
-        data = {"note": f"Full monitoring module unavailable: {e}"}
+    now = datetime.now()
 
-    files = {"IEX":"iex_live.csv","Weather":"weather_live.csv","Commodities":"commodities_live.csv"}
-    freshness = {}
-    for n,fn in files.items():
-        age = file_age_minutes(os.path.join(DATA_DIR,fn))
-        freshness[n] = {"age": age if age<9999 else "N/A", "status": freshness_label(age)}
+    # ── 1. MODEL HEALTH ALERT ────────────────────────────────
+    mape_val   = state["mape"] or 0
+    model_ok   = state["model"] is not None
+    iex_age    = file_age_minutes(os.path.join(DATA_DIR,"iex_live.csv"))
+    wx_age     = file_age_minutes(os.path.join(DATA_DIR,"weather_live.csv"))
+    com_age    = file_age_minutes(os.path.join(DATA_DIR,"commodities_live.csv"))
+    data_stale = max(iex_age, wx_age) >= FRESHNESS_STALE
 
-    fresh_rows = "".join(
-        f'<tr><td><b>{n}</b></td><td>{v["age"]} min ago</td><td>{fbadge(v["status"])}</td></tr>'
-        for n,v in freshness.items())
+    # Load prediction log
+    pred_df = pd.DataFrame()
+    if os.path.exists(PRED_LOG):
+        try:
+            pred_df = pd.read_csv(PRED_LOG, parse_dates=["timestamp"]).dropna(subset=["predicted_mcp"])
+        except: pass
 
+    has_actuals  = "actual_mcp" in pred_df.columns and pred_df["actual_mcp"].notna().sum() >= 5
+    rolling_mape = None
+    if has_actuals:
+        recent = pred_df.dropna(subset=["actual_mcp"]).tail(30)
+        if len(recent) > 0:
+            rolling_mape = (abs(recent["actual_mcp"] - recent["predicted_mcp"]) / (recent["actual_mcp"] + 1) * 100).mean()
+
+    # Determine overall health
+    issues = []
+    if not model_ok:        issues.append("Model not loaded")
+    if data_stale:          issues.append(f"Live data stale ({max(iex_age,wx_age):.0f} min old)")
+    if rolling_mape and rolling_mape > 30: issues.append(f"Rolling MAPE {rolling_mape:.1f}% exceeds 30% threshold")
+
+    if not issues:
+        health_color, health_status, health_bg = "#27ae60", "ALL SYSTEMS HEALTHY", "#f0fff4"
+        health_border, health_rec = "#27ae60", "No action required. Continue monitoring."
+    elif len(issues) == 1 and data_stale and not (rolling_mape and rolling_mape > 30):
+        health_color, health_status, health_bg = "#f39c12", "WARNING — ATTENTION NEEDED", "#fffbf0"
+        health_border, health_rec = "#f39c12", "Trigger /refresh to update live data. Monitor MAPE."
+    else:
+        health_color, health_status, health_bg = "#e94560", "CRITICAL — ACTION REQUIRED", "#fff8f8"
+        health_border, health_rec = "#e94560", "Trigger /retrain if MAPE > 30%. Check /refresh for data issues."
+
+    issue_rows = "".join(f'<li style="margin:4px 0">&#9888; {i}</li>' for i in issues) if issues else '<li style="color:#27ae60">&#10003; No issues detected</li>'
+
+    health_html = f"""
+    <div class="sec" style="border-left:6px solid {health_border};background:{health_bg}">
+      <h2 style="color:{health_color};border-color:{health_color}">{health_status}</h2>
+      <div class="grid">
+        <div class="card" style="border-color:{'#27ae60' if model_ok else '#e94560'}">
+          <div class="cl">Model</div>
+          <div class="cv" style="color:{'#27ae60' if model_ok else '#e94560'};font-size:1em">{"LOADED" if model_ok else "NOT LOADED"}</div>
+          <div class="cs">{state['model_name']} {state['version']}</div>
+        </div>
+        <div class="card" style="border-color:{'#27ae60' if mape_val<25 else '#f39c12' if mape_val<30 else '#e94560'}">
+          <div class="cl">Test MAPE</div>
+          <div class="cv">{f"{mape_val:.2f}%" if mape_val else "N/A"}</div>
+          <div class="cs">{"Good" if mape_val<25 else "Watch" if mape_val<30 else "Retrain!"}</div>
+        </div>
+        <div class="card" style="border-color:{'#27ae60' if iex_age<20 else '#f39c12' if iex_age<45 else '#e94560'}">
+          <div class="cl">IEX Data Age</div>
+          <div class="cv" style="font-size:1.1em">{iex_age:.0f} min</div>
+          <div class="cs">{freshness_label(iex_age)}</div>
+        </div>
+        <div class="card" style="border-color:{'#27ae60' if wx_age<20 else '#f39c12' if wx_age<45 else '#e94560'}">
+          <div class="cl">Weather Age</div>
+          <div class="cv" style="font-size:1.1em">{wx_age:.0f} min</div>
+          <div class="cs">{freshness_label(wx_age)}</div>
+        </div>
+        <div class="card" style="border-color:{'#27ae60' if rolling_mape and rolling_mape<25 else '#f39c12' if rolling_mape and rolling_mape<30 else '#95a5a6'}">
+          <div class="cl">Rolling MAPE (30)</div>
+          <div class="cv">{f"{rolling_mape:.1f}%" if rolling_mape else "No actuals yet"}</div>
+          <div class="cs">Last 30 predictions</div>
+        </div>
+        <div class="card">
+          <div class="cl">Last Checked</div>
+          <div class="cv" style="font-size:.85em">{now.strftime('%H:%M:%S')}</div>
+          <div class="cs">{now.strftime('%d %b %Y')}</div>
+        </div>
+      </div>
+      <ul style="margin:12px 0 8px 18px;font-size:.92em;line-height:1.8">{issue_rows}</ul>
+      <div class="ins {"ing" if not issues else "inw"}""><b>Recommendation:</b> {health_rec}
+        &nbsp;<a class="il" href="/refresh">Refresh Data</a> &nbsp;|&nbsp;
+        <a class="il" href="/retrain">Retrain Model</a>
+      </div>
+    </div>"""
+
+    # ── 2. DATA DRIFT (KS TEST) ──────────────────────────────
     drift_html = ""
-    if "drift" in data:
-        drift_rows = "".join(
-            f'<tr><td style="font-family:monospace">{feat}</td><td>{round(float(stat),4)}</td><td>{"Yes" if p<0.05 else "No"}</td></tr>'
-            for feat,(stat,p) in data["drift"].items())
-        drift_html = f'<div class="sec"><h2>Feature Drift Detection (KS Test)</h2><table class="tbl"><tr><th>Feature</th><th>KS Statistic</th><th>Drift Detected?</th></tr>{drift_rows}</table></div>'
+    try:
+        from scipy.stats import ks_2samp
+        # Load training reference (historical) vs live
+        hist_path = os.path.join(DATA_DIR,"iex_historical.csv")
+        live_path = os.path.join(DATA_DIR,"iex_live.csv")
+        if os.path.exists(hist_path) and os.path.exists(live_path):
+            hist = pd.read_csv(hist_path).dropna(subset=["MCP"])
+            live = pd.read_csv(live_path).dropna(subset=["MCP"])
 
-    rolling_html = ""
-    if "rolling_mape" in data:
-        rm = data["rolling_mape"]
-        rolling_html = f'<div class="sec"><h2>Rolling MAPE</h2><div class="ins">30-day rolling MAPE: <b>{rm:.2f}%</b> | Model version: {state["version"]}</div></div>'
+            # Features to check for drift
+            drift_checks = {}
+            for col in ["MCP","purchase_bid_mw","sell_bid_mw","mcv_mw"]:
+                if col in hist.columns and col in live.columns:
+                    h_vals = hist[col].dropna().values
+                    l_vals = live[col].dropna().values
+                    if len(h_vals)>10 and len(l_vals)>5:
+                        stat, pval = ks_2samp(h_vals, l_vals)
+                        drift_checks[col] = (stat, pval)
 
-    note = data.get("note","")
-    note_html = f'<div class="ins inw">{note}</div>' if note else ""
+            if drift_checks:
+                drift_rows = ""
+                any_drift = False
+                for feat,(stat,pval) in drift_checks.items():
+                    drifted = pval < 0.05
+                    if drifted: any_drift = True
+                    dc = "#e94560" if drifted else "#27ae60"
+                    label = "YES — DRIFT" if drifted else "No drift"
+                    drift_rows += f"""<tr>
+                      <td style="font-family:monospace;font-weight:bold">{feat}</td>
+                      <td>{stat:.4f}</td>
+                      <td>{pval:.4f}</td>
+                      <td style="color:{dc};font-weight:bold">{label}</td>
+                      <td style="font-size:.82em;color:#636e72">{"Current distribution differs from training — model may underperform" if drifted else "Distribution stable"}</td>
+                    </tr>"""
 
-    body = f"""
-    {note_html}
-    <div class="sec"><h2>Data Freshness</h2>
-    <table class="tbl"><tr><th>Source</th><th>Age</th><th>Status</th></tr>{fresh_rows}</table>
-    </div>
-    {drift_html}
-    {rolling_html}
-    <div class="sec"><h2>Model Version</h2>
-    <div class="grid">
-      <div class="card"><div class="cl">Model</div><div class="cv" style="font-size:1.1em">{state['model_name']}</div><div class="cs">{state['version']}</div></div>
-      <div class="card cg"><div class="cl">MAPE</div><div class="cv">{f"{state['mape']:.2f}%" if state["mape"] else "N/A"}</div></div>
-      <div class="card"><div class="cl">Loaded At</div><div class="cv" style="font-size:.85em">{state['loaded_at']}</div></div>
-    </div>
-    <div class="ins">Trigger <a class="il" href="/retrain">/retrain</a> if drift is detected or MAPE exceeds 30%.</div>
-    </div>
-    <p class="ts">Checked: {datetime.now().strftime("%d %b %Y %H:%M:%S")}</p>"""
+                drift_html = f"""
+                <div class="sec">
+                  <h2>Data Drift Detection (Kolmogorov-Smirnov Test)</h2>
+                  <div class="ins">KS test compares live feature distribution against historical training data.
+                  <b>p-value &lt; 0.05</b> means the live data has drifted significantly from what the model was trained on — predictions may degrade.</div>
+                  <table class="tbl">
+                    <tr><th>Feature</th><th>KS Statistic</th><th>p-value</th><th>Drift?</th><th>Interpretation</th></tr>
+                    {drift_rows}
+                  </table>
+                  <div class="ins {"inw" if any_drift else "ing"}">
+                    {"&#9888; Drift detected — consider retraining if MAPE is also rising. Trigger <a class='il' href='/retrain'>/retrain</a>" if any_drift else "&#10003; No significant drift detected — model training distribution is stable"}
+                  </div>
+                </div>"""
+    except Exception as e:
+        drift_html = f'<div class="sec"><h2>Data Drift Detection</h2><div class="ins inw">scipy not available: {e}</div></div>'
+
+    # ── 3. LAST 30 PREDICTIONS TABLE ─────────────────────────
+    pred_html = ""
+    if len(pred_df) > 0:
+        recent_preds = pred_df.tail(30).iloc[::-1]  # newest first
+        pred_rows = ""
+        for _, row in recent_preds.iterrows():
+            sig_color = {"BUY":"#27ae60","SELL":"#e94560","HOLD":"#f39c12"}.get(str(row.get("signal","")), "#95a5a6")
+            conf_class = {"HIGH":"cg","MEDIUM":"co","LOW":"cr"}.get(str(row.get("confidence","")), "")
+            actual = row.get("actual_mcp")
+            mape_cell = ""
+            if pd.notna(actual) and actual > 0:
+                err = abs(actual - row["predicted_mcp"]) / actual * 100
+                mape_color = "#27ae60" if err < 20 else "#f39c12" if err < 30 else "#e94560"
+                mape_cell = f'<span style="color:{mape_color};font-weight:bold">{err:.1f}%</span>'
+            else:
+                mape_cell = '<span style="color:#b2bec3">—</span>'
+
+            pred_rows += f"""<tr>
+              <td style="font-size:.8em;color:#636e72">{str(row.get("timestamp",""))[:16]}</td>
+              <td><b>Rs{float(row["predicted_mcp"]):,.2f}</b></td>
+              <td>{f"Rs{float(actual):,.2f}" if pd.notna(actual) else '<span style="color:#b2bec3">Pending</span>'}</td>
+              <td>{mape_cell}</td>
+              <td><span style="background:{sig_color};color:white;padding:1px 8px;border-radius:8px;font-size:.78em">{row.get("signal","—")}</span></td>
+              <td><span style="font-size:.78em;font-weight:bold;color:{{"HIGH":"#27ae60","MEDIUM":"#f39c12","LOW":"#e94560"}}.get(str(row.get("confidence","")), "#95a5a6")">{row.get("confidence","—")}</span></td>
+              <td style="font-family:monospace;font-size:.8em;color:#636e72">{row.get("model_version","—")}</td>
+            </tr>"""
+
+        avg_pred = pred_df["predicted_mcp"].mean()
+        pred_html = f"""
+        <div class="sec">
+          <h2>Last 30 Predictions</h2>
+          <div class="grid" style="grid-template-columns:repeat(4,1fr)">
+            <div class="card"><div class="cl">Total Logged</div><div class="cv">{len(pred_df)}</div></div>
+            <div class="card cg"><div class="cl">Avg Predicted MCP</div><div class="cv">Rs{avg_pred:,.0f}</div></div>
+            <div class="card {"cg" if rolling_mape and rolling_mape<25 else "co" if rolling_mape and rolling_mape<30 else "cgr"}">
+              <div class="cl">Rolling MAPE</div>
+              <div class="cv">{f"{rolling_mape:.1f}%" if rolling_mape else "No actuals"}</div>
+            </div>
+            <div class="card"><div class="cl">Model Version</div><div class="cv" style="font-size:1em">{state["version"]}</div></div>
+          </div>
+          <table class="tbl">
+            <tr><th>Timestamp</th><th>Predicted</th><th>Actual</th><th>MAPE</th><th>Signal</th><th>Confidence</th><th>Version</th></tr>
+            {pred_rows}
+          </table>
+          <div class="ins">Actual MCP is filled in retrospectively when IEX publishes final data. Until then it shows Pending.</div>
+        </div>"""
+    else:
+        pred_html = '<div class="sec"><h2>Last 30 Predictions</h2><div class="ins inw">No predictions logged yet — visit <a class="il" href="/forecast/24h">/forecast/24h</a> or <a class="il" href="/predict/sample">/predict/sample</a> to generate predictions.</div></div>'
+
+    # ── 4. DATA PIPELINE HEALTH ──────────────────────────────
+    pipeline_files = {
+        "IEX Live":         ("iex_live.csv",          "RTM 15-min prices",         "scraper_iex.py"),
+        "IEX Historical":   ("iex_historical.csv",    "Full price history",         "scraper_iex.py"),
+        "Weather Live":     ("weather_live.csv",       "NASA POWER 8 cities",       "scraper_weather.py"),
+        "Weather Historical":("weather_historical.csv","3-year weather history",    "scraper_weather.py"),
+        "Commodities Live": ("commodities_live.csv",   "Crude, gas, FX",            "fetch_historical_commodities.py"),
+        "Master Dataset":   ("master_training_data.csv","Merged training data",     "merge_historical.py"),
+    }
+    pipe_rows = ""
+    for label,(fname,desc,script) in pipeline_files.items():
+        fpath = os.path.join(DATA_DIR, fname)
+        if os.path.exists(fpath):
+            try:
+                df_tmp  = pd.read_csv(fpath)
+                nrows   = len(df_tmp)
+                age     = file_age_minutes(fpath)
+                mod_dt  = datetime.fromtimestamp(os.path.getmtime(fpath)).strftime("%d %b %H:%M")
+                size_kb = os.path.getsize(fpath)//1024
+                status  = freshness_label(age) if "_live" in fname else "OK"
+                sc      = {"FRESH":"#27ae60","WARNING":"#f39c12","STALE":"#e94560","OK":"#2980b9"}.get(status,"#95a5a6")
+                pipe_rows += f"""<tr>
+                  <td><b>{label}</b><br><span style="font-size:.78em;color:#95a5a6">{script}</span></td>
+                  <td style="font-size:.85em;color:#636e72">{desc}</td>
+                  <td style="font-weight:bold">{nrows:,}</td>
+                  <td style="font-size:.85em">{mod_dt}</td>
+                  <td>{size_kb} KB</td>
+                  <td><span style="background:{sc};color:white;padding:2px 8px;border-radius:8px;font-size:.78em">{status}</span></td>
+                </tr>"""
+            except Exception as ex:
+                pipe_rows += f'<tr><td><b>{label}</b></td><td colspan="5" style="color:#e94560">Read error: {ex}</td></tr>'
+        else:
+            pipe_rows += f'<tr><td><b>{label}</b></td><td style="color:#636e72;font-size:.85em">{desc}</td><td colspan="4" style="color:#b2bec3">File not found — run pipeline first</td></tr>'
+
+    pipeline_html = f"""
+    <div class="sec">
+      <h2>Data Pipeline Health</h2>
+      <table class="tbl">
+        <tr><th>File</th><th>Description</th><th>Records</th><th>Last Modified</th><th>Size</th><th>Status</th></tr>
+        {pipe_rows}
+      </table>
+      <div class="ins">Live files refresh every 30 min automatically. Historical files update when pipeline reruns.
+        <a class="il" href="/refresh">Trigger refresh →</a>
+      </div>
+    </div>"""
+
+    # ── 5. PRICE DISTRIBUTION SHIFT ──────────────────────────
+    dist_html = ""
+    try:
+        hist_path = os.path.join(DATA_DIR,"iex_historical.csv")
+        live_path = os.path.join(DATA_DIR,"iex_live.csv")
+        if os.path.exists(hist_path) and os.path.exists(live_path):
+            hist = pd.read_csv(hist_path).dropna(subset=["MCP"])
+            live = pd.read_csv(live_path).dropna(subset=["MCP"])
+
+            # Recent 30 days from historical
+            hist["date_p"] = pd.to_datetime(hist["date"], format="%d-%m-%Y", errors="coerce")
+            cutoff = hist["date_p"].max() - pd.Timedelta(days=30)
+            recent_hist = hist[hist["date_p"] >= cutoff]["MCP"]
+
+            def pct_stats(series, label):
+                s = series.dropna()
+                return {
+                    "label": label,
+                    "n":     len(s),
+                    "mean":  s.mean(),
+                    "median":s.median(),
+                    "std":   s.std(),
+                    "p10":   s.quantile(0.10),
+                    "p25":   s.quantile(0.25),
+                    "p75":   s.quantile(0.75),
+                    "p90":   s.quantile(0.90),
+                    "spikes":(s>9000).mean()*100,
+                }
+
+            train_stats = pct_stats(hist["MCP"],        "Full Historical")
+            recent_stats= pct_stats(recent_hist,        "Last 30 Days (Historical)")
+            live_stats  = pct_stats(live["MCP"],        "Live (Today)")
+
+            def stat_row(s):
+                spike_c = "#e94560" if s["spikes"]>10 else "#f39c12" if s["spikes"]>5 else "#27ae60"
+                return f"""<tr>
+                  <td><b>{s["label"]}</b></td>
+                  <td>{s["n"]:,}</td>
+                  <td style="font-weight:bold">Rs{s["mean"]:,.0f}</td>
+                  <td>Rs{s["median"]:,.0f}</td>
+                  <td>Rs{s["std"]:,.0f}</td>
+                  <td style="color:#636e72">Rs{s["p10"]:,.0f}</td>
+                  <td style="color:#2980b9">Rs{s["p25"]:,.0f}</td>
+                  <td style="color:#2980b9">Rs{s["p75"]:,.0f}</td>
+                  <td style="color:#636e72">Rs{s["p90"]:,.0f}</td>
+                  <td style="color:{spike_c};font-weight:bold">{s["spikes"]:.1f}%</td>
+                </tr>"""
+
+            # Regime shift warning
+            mean_diff = abs(live_stats["mean"] - train_stats["mean"])
+            mean_diff_pct = mean_diff / (train_stats["mean"] + 1) * 100
+            shift_warn = mean_diff_pct > 15
+
+            dist_html = f"""
+            <div class="sec">
+              <h2>Price Distribution Shift</h2>
+              <div class="ins">Compares current live MCP distribution against historical training data.
+              Large shifts indicate a market regime change — the model may need retraining.</div>
+              <table class="tbl">
+                <tr><th>Period</th><th>Records</th><th>Mean</th><th>Median</th><th>Std Dev</th>
+                    <th>P10</th><th>P25</th><th>P75</th><th>P90</th><th>Spikes &gt;9k</th></tr>
+                {stat_row(train_stats)}
+                {stat_row(recent_stats)}
+                {stat_row(live_stats)}
+              </table>
+              <div class="ins {"inw" if shift_warn else "ing"}">
+                {"&#9888; <b>Regime shift detected:</b> Live mean MCP differs from training mean by " + f"{mean_diff_pct:.1f}% (Rs{mean_diff:,.0f}/MWh). Model was trained on different price levels — consider retraining." if shift_warn else f"&#10003; Price levels are consistent. Live mean (Rs{live_stats['mean']:,.0f}) is within normal range of training mean (Rs{train_stats['mean']:,.0f})."}
+              </div>
+            </div>"""
+    except Exception as e:
+        dist_html = f'<div class="sec"><h2>Price Distribution Shift</h2><div class="ins inw">Could not compute: {e}</div></div>'
+
+    # ── ASSEMBLE PAGE ────────────────────────────────────────
+    body = health_html + drift_html + pred_html + pipeline_html + dist_html
+    body += f'<p class="ts">Page generated: {now.strftime("%d %b %Y %H:%M:%S")} | Auto-refresh every 60s</p>'
+
+    overall_badge = badge("HEALTHY","bg") if not issues else badge("WARNING","bo") if len(issues)==1 else badge("CRITICAL","br")
 
     return page("Monitoring","Model Monitoring",
-        "Drift detection + data freshness + rolling MAPE",
-        badge(f"{state['model_name']} {state['version']}","bb") + badge(f"Checked: {datetime.now().strftime('%H:%M')}","bd"),
+        "Health alerts | Drift detection | Predictions | Pipeline | Distribution shift",
+        overall_badge + badge(f"{state['model_name']} {state['version']}","bb") + badge(f"Checked: {now.strftime('%H:%M')}","bd"),
         body)
 
 # ══════════════════════════════════════════════════════════════
