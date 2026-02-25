@@ -65,6 +65,16 @@ def refresh_all():
     except Exception as e:
         print(f"  Sync error: {e}")
 
+    # Backfill actual MCP into prediction_log so Rolling MAPE works
+    try:
+        backfill_script = os.path.join(BASE_DIR, "data_pipeline", "backfill_actuals.py")
+        if os.path.exists(backfill_script):
+            subprocess.run(["python", backfill_script], timeout=30,
+                         capture_output=True, cwd=BASE_DIR)
+            print("  ✅ Actuals backfilled")
+    except Exception as e:
+        print(f"  Backfill error: {e}")
+
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Refresh complete\n")
 
 def scheduler_loop():

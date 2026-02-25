@@ -12,10 +12,13 @@
 |---|---|
 | **Public URL** | http://13.236.44.97:5000 |
 | **Home Page** | http://13.236.44.97:5000/ |
+| **Model Summary** | http://13.236.44.97:5000/model-summary |
 | **Health Check** | http://13.236.44.97:5000/health |
 | **Interactive Predictor** | http://13.236.44.97:5000/predict |
 | **24h Forecast** | http://13.236.44.97:5000/forecast/24h |
 | **EDA Dashboard** | http://13.236.44.97:5000/eda |
+| **PESTLE Analysis** | http://13.236.44.97:5000/pestle |
+| **Monitoring** | http://13.236.44.97:5000/monitoring |
 | **Server** | AWS EC2 t3.small — ap-southeast-2 (Sydney) |
 | **Container** | Docker (Python 3.11 + Chromium/Selenium) |
 
@@ -59,6 +62,10 @@
 │                        │                                    │
 │              sync_live_files.py                             │
 │         (Copies latest rows to *_live.csv every 30 min)     │
+│                        │                                    │
+│              backfill_actuals.py                            │
+│         (Fills actual MCP into prediction log               │
+│          by matching timestamp to IEX time block)           │
 └────────────────────────┬────────────────────────────────────┘
                          │
                          ▼
@@ -74,7 +81,7 @@
 │                                                             │
 │  Step 1: Schema Validation (validator.py)                   │
 │  Step 2: Feature prep — last 18 months, leakage-free        │
-│  Step 3: Train ARIMA + SVM + XGBoost (3-fold CV)           │
+│  Step 3: Train ARIMA + SVM + XGBoost (3-fold CV)            │
 │  Step 4: Business Evaluation (Rs P&L simulation)            │
 │  Step 5: PESTLE Scenario Analysis (7 scenarios)             │
 │  Step 6: Model Versioning + Rollback                        │
@@ -86,15 +93,17 @@
 │                 FLASK REST API  (app/app.py)                 │
 │                                                             │
 │  /                    → HTML home page + clickable links    │
+│  /model-summary       → Model card — all models, metrics    │
 │  /health              → System health + data freshness      │
 │  /predict             → Interactive HTML prediction form    │
-│  /predict/sample      → Live single prediction (JSON)       │
+│  /predict/sample      → Live single prediction              │
 │  /forecast/24h        → 96-block forecast + signals         │
 │  /feature-importance  → Top 10 model drivers                │
 │  /trading-simulation  → Historical P&L log                  │
 │  /data/latest         → Live data freshness status          │
 │  /eda                 → EDA dashboard (HTML)                │
-│  /monitoring          → Drift detection                     │
+│  /pestle              → PESTLE scenario analysis            │
+│  /monitoring          → Full monitoring dashboard           │
 │  /refresh             → Trigger immediate data refresh      │
 │  /retrain             → Trigger model retraining            │
 └────────────────────────┬────────────────────────────────────┘
@@ -115,7 +124,7 @@
 ```
 Group-05-IEX-Forecasting/
 │
-├── data/                               # All data files
+├── data/
 │   ├── Price.xlsx                      # Mendeley dataset (2021-2023, hourly)
 │   ├── iex_historical.csv              # Scraped IEX RTM data (2023-2026)
 │   ├── iex_live.csv                    # Latest IEX 15-min blocks (auto-refreshed)
@@ -123,20 +132,22 @@ Group-05-IEX-Forecasting/
 │   ├── weather_live.csv                # Latest weather readings (auto-refreshed)
 │   ├── commodities_historical.csv      # Crude oil, gas, USD/INR
 │   ├── commodities_live.csv            # Latest commodity prices (auto-refreshed)
+│   ├── prediction_log.csv              # Every prediction logged with actual MCP backfilled
 │   └── master_training_data.csv        # Final merged + engineered dataset
 │
-├── data_pipeline/                      # All data scripts
+├── data_pipeline/
 │   ├── scraper_iex.py                  # IEX website scraper (Selenium, headless)
 │   ├── scraper_weather.py              # NASA POWER API — 8 cities
 │   ├── fetch_historical_commodities.py # Yahoo Finance + Frankfurter
 │   ├── merge_historical.py             # Master merge with leakage-free features
 │   ├── sync_live_files.py              # Copies historical to live CSVs
-│   ├── scheduler.py                    # Auto-refresh every 30 min
+│   ├── backfill_actuals.py             # Fills actual MCP into prediction_log
+│   ├── scheduler.py                    # Auto-refresh every 30 min + backfill
 │   ├── eda_generator.py                # Auto-generates EDA HTML report
 │   ├── validator.py                    # Schema validation + dataset versioning
 │   └── monitor.py                      # Drift detection + rolling metrics
 │
-├── models/                             # Trained model artifacts
+├── models/
 │   ├── best_model.pkl                  # Best model (XGBoost v7)
 │   ├── scaler.pkl                      # StandardScaler
 │   ├── feature_cols.pkl                # Feature column list
@@ -148,19 +159,17 @@ Group-05-IEX-Forecasting/
 │   └── archive/                        # Previous model versions (rollback)
 │
 ├── app/
-│   ├── app.py                          # Flask REST API (12 endpoints)
+│   ├── app.py                          # Flask REST API (14 endpoints, all HTML)
 │   └── static/
 │       └── eda_report.html             # Auto-generated EDA dashboard
 │
-├── config.py                           # Central config — reads from .env
-├── .env.example                        # API key template — safe to commit
-├── .env                                # Real API keys — gitignored
-├── run_pipeline.py                     # End-to-end pipeline runner
-├── diagnose.py                         # Model diagnostic tool
-├── Dockerfile                          # Docker + Chromium for Selenium
-├── docker-compose.yml                  # Docker compose config
-├── requirements.txt                    # Python dependencies
-└── README.md                           # This file
+├── config.py
+├── .env.example
+├── run_pipeline.py
+├── Dockerfile
+├── docker-compose.yml
+├── requirements.txt
+└── README.md
 ```
 
 ---
@@ -174,7 +183,7 @@ Group-05-IEX-Forecasting/
 | **3. Data Preparation** | ✅ | Option B merge, missing data handling, leakage-free features |
 | **4. Modelling** | ✅ | ARIMA + SVM + XGBoost, TimeSeriesSplit CV, hyperparameter tuning |
 | **5. Evaluation** | ✅ | MAPE/RMSE/MAE, business Rs evaluation, PESTLE scenarios |
-| **6. Deployment** | ✅ | Flask API, Docker, AWS EC2, 12 endpoints, model versioning |
+| **6. Deployment** | ✅ | Flask API, Docker, AWS EC2, 14 endpoints, model versioning |
 | **Quality** | ✅ | Schema validation, drift detection, prediction logging, rollback |
 
 ---
@@ -197,10 +206,10 @@ All rolling statistics computed on **shifted MCP** — current price never appea
 
 | Bug | Impact | Fix |
 |---|---|---|
-| Price.xlsx extended data to 2021 (fake ffill 15-min) | MAPE 79% | Date range locked to scraped period only |
-| `seasonality = MCP - trend` used current MCP as feature | 49% feature importance, model saw the answer | Removed entirely |
-| `price_rolling_24h` included current MCP in rolling window | Inflated lag correlation | All rolling on `MCP.shift(1)` |
-| 6-month test split hit different price regime (Rs4605 vs Rs3390) | MAPE 164% | 18-month training window keeps same regime |
+| Price.xlsx extended to 2021 (fake ffill 15-min) | MAPE 79% | Date range locked to scraped period only |
+| `seasonality = MCP - trend` used current MCP as feature | 49% importance, model saw answer | Removed entirely |
+| `price_rolling_24h` included current MCP in window | Inflated lag correlation | All rolling on `MCP.shift(1)` |
+| 6-month test split hit different price regime | MAPE 164% | 18-month training window |
 
 ---
 
@@ -212,26 +221,55 @@ All rolling statistics computed on **shifted MCP** — current price never appea
 | SVM | 69.48% | — | 21.28% | Good CV, poor extrapolation |
 | ARIMA | 53.46% | — | — | Baseline, no exogenous features |
 
-**Top 5 Features (XGBoost):**
-1. `mcp_lag_1h` — 0.315 (most recent price)
-2. `mcp_lag_24h` — 0.142 (same time yesterday)
-3. `price_rolling_24h` — 0.098
-4. `hour` — 0.071
-5. `temp_delhi` — 0.052
-
 ---
 
 ## 🌍 PESTLE Scenario Analysis
 
-| Scenario | Avg MCP (Rs/MWh) | Change vs Baseline |
-|---|---|---|
-| Baseline (Current) | 3,630 | — |
-| Carbon Tax +20% | 3,651 | +21 |
-| Economic Recession -15% | 3,406 | -224 |
-| Heatwave +8C | 3,637 | +7 |
-| Renewable Surge +30% | 3,406 | -224 |
-| Price Cap 8000 | 3,571 | -59 |
-| Monsoon Season | 3,548 | -82 |
+| Scenario | Category | Avg MCP (Rs/MWh) | Change vs Baseline |
+|---|---|---|---|
+| Baseline (Current) | — | 3,630 | — |
+| Carbon Tax +20% | Political | 3,651 | +21 |
+| Economic Recession -15% | Economic | 3,406 | -224 |
+| Heatwave +8°C | Social/Environmental | 3,637 | +7 |
+| Renewable Surge +30% | Technological | 3,406 | -224 |
+| Price Cap Rs8,000 | Legal | 3,571 | -59 |
+| Monsoon Season | Environmental | 3,548 | -82 |
+
+Full analysis at `/pestle` — methodology, feature overrides, PESTLE framework explanation.
+
+---
+
+## 📡 Monitoring Dashboard (`/monitoring`)
+
+5-section operational health view:
+
+**1 — Model Health Alert (Traffic Light)**
+GREEN / YELLOW / RED based on model status, data age, rolling MAPE. Actionable recommendation.
+
+**2 — Data Drift (KS Test)**
+KS test on MCP, purchase_bid_mw, sell_bid_mw, mcv_mw vs training distribution. p < 0.05 = drift.
+
+**3 — Last 30 Predictions**
+Predicted vs actual MCP, per-prediction MAPE, signal, confidence, model version. Actuals auto-filled by backfill_actuals.py.
+
+**4 — Data Pipeline Health**
+All 6 data files — records, last modified, size, FRESH/WARNING/STALE status.
+
+**5 — Price Distribution Shift**
+Full Historical vs Last 30 Days vs Live Today — mean, median, std, percentiles, spike rate. Warns if live mean differs >15% from training.
+
+---
+
+## 📋 Model Summary Card (`/model-summary`)
+
+Complete model card:
+- All models evaluated (ARIMA, SVM, XGBoost) with metrics
+- CrossValidation strategy (TimeSeriesSplit, 3-fold)
+- Training data period, sources, test split rationale
+- Data cleaning pipeline (6 steps)
+- 4 critical bugs found and fixed (with MAPE impact)
+- Top 10 feature importances
+- Deployment and monitoring setup
 
 ---
 
@@ -239,37 +277,28 @@ All rolling statistics computed on **shifted MCP** — current price never appea
 
 ### Local Setup
 ```bash
-# 1. Clone
 git clone https://github.com/praveenp1118/Group-05-IEX-Forecasting.git
 cd Group-05-IEX-Forecasting
-
-# 2. Set up environment
 copy .env.example .env
-# Edit .env with your API keys if needed
-
-# 3. Install dependencies
 pip install -r requirements.txt
-
-# 4. Run pipeline (trains model, generates EDA)
 python run_pipeline.py
-
-# 5. Start API via Docker
-docker-compose up -d
-
-# 6. Open browser
-# http://localhost:5000
+docker-compose up -d --build
+# Open http://localhost:5000
 ```
 
-### Docker Commands
+### Useful Docker Commands
 ```bash
-# Build and run
-docker-compose up -d --build
-
-# Check logs
+# Logs
 docker logs group05-iex-api --follow
 
+# Backfill actual MCP into prediction log
+docker exec group05-iex-api python3 data_pipeline/backfill_actuals.py
+
+# Regenerate EDA report
+docker exec group05-iex-api python3 data_pipeline/eda_generator.py
+
 # Trigger data refresh
-# http://localhost:5000/refresh
+docker exec group05-iex-api python3 data_pipeline/scheduler.py
 
 # Stop
 docker-compose down
@@ -277,59 +306,35 @@ docker-compose down
 
 ---
 
-## 🔌 API Endpoints
+## 🔌 API Endpoints (14 total — all HTML)
 
-| Endpoint | Method | Description |
-|---|---|---|
-| `/` | GET | HTML home page with clickable endpoint links |
-| `/health` | GET | Model version, MAPE, live data freshness |
-| `/predict` | GET/POST | **Interactive HTML form** — pre-filled with live data, adjust & predict |
-| `/predict/sample` | GET | Quick single prediction using live data (JSON) |
-| `/forecast/24h` | GET | 96-block forecast + BUY/SELL/HOLD signals |
-| `/feature-importance` | GET | Top 10 model drivers |
-| `/trading-simulation` | GET | Historical P&L from prediction log |
-| `/data/latest` | GET | IEX + weather + commodity freshness status |
-| `/eda` | GET | EDA dashboard (HTML) |
-| `/monitoring` | GET | Drift detection + rolling MAPE |
-| `/refresh` | GET | **Trigger immediate live data refresh** |
-| `/retrain` | GET | Trigger background model retraining |
-
-### Sample Response — `/forecast/24h`
-```json
-{
-  "model": "XGBoost",
-  "version": "v7",
-  "mape": "20.65%",
-  "business_metrics": {
-    "avg_mcp_24h": 3630,
-    "estimated_savings": 4200000,
-    "buy_windows": 18,
-    "sell_windows": 12,
-    "optimal_buy_time": "2026-02-24 03:15"
-  },
-  "forecast": [
-    {"block": 1, "datetime": "2026-02-24 02:30",
-     "predicted_mcp": 3245.6, "confidence": "HIGH",
-     "signal": "HOLD"}
-  ]
-}
-```
+| Endpoint | Description |
+|---|---|
+| `/` | Home page with all endpoint links |
+| `/model-summary` | Model card — models, metrics, data, bugs fixed |
+| `/health` | Model version, MAPE, data freshness |
+| `/predict` | Interactive form — pre-filled with live data |
+| `/predict/sample` | Quick single prediction |
+| `/forecast/24h` | 96-block forecast + BUY/SELL/HOLD signals |
+| `/feature-importance` | Top 10 drivers with bar chart |
+| `/trading-simulation` | Simulated P&L from prediction log |
+| `/data/latest` | IEX + weather + commodity status |
+| `/eda` | Full EDA — STL, ACF/PACF, seasonality, correlations |
+| `/pestle` | 7 PESTLE scenarios + methodology |
+| `/monitoring` | Health, drift, predictions, pipeline, distribution |
+| `/refresh` | Trigger live data refresh |
+| `/retrain` | Trigger model retraining |
 
 ---
 
-## 🔒 Security
+## 📦 Dependencies
 
-API keys managed via `.env` — never hardcoded in source:
-
-```bash
-# .env (gitignored — never committed)
-OPENWEATHER_API_KEY=your_real_key
-
-# .env.example (committed — safe template for teammates)
-OPENWEATHER_API_KEY=your_key_here
 ```
-
-`config.py` loads `.env` at startup and provides keys to all modules.
+flask, pandas, numpy, scikit-learn, xgboost
+statsmodels, matplotlib, seaborn, scipy
+openpyxl, requests, gunicorn
+python-dotenv, selenium, webdriver-manager
+```
 
 ---
 
@@ -338,10 +343,10 @@ OPENWEATHER_API_KEY=your_key_here
 - **63.8% improvement** over ARIMA baseline
 - **Rs 7.7 Crore simulated P&L** over 3-month test period (100 MW volume)
 - **24-hour forecast** with per-block BUY/SELL/HOLD signals
-- **Live AWS deployment** — accessible from anywhere at `http://13.236.44.97:5000`
-- **Auto-refresh** — IEX + weather + commodities updated every 30 minutes
-- **Interactive predictor** — change inputs in browser, get instant price forecast
-- **Model rollback** — previous versions archived in `models/archive/`
+- **Live AWS deployment** — http://13.236.44.97:5000
+- **Auto-refresh** every 30 minutes
+- **Full monitoring** — health, drift, rolling MAPE, pipeline, distribution shift
+- **Model rollback** — previous versions in `models/archive/`
 
 ---
 
@@ -355,8 +360,8 @@ OPENWEATHER_API_KEY=your_key_here
 
 | Source | Data | Period |
 |---|---|---|
-| IEX Website (Selenium scraper) | RTM 15-min MCP, volumes | Feb 2023 – present |
-| Mendeley (Price.xlsx) | Hourly MCP + demand | 2021–2023 (gap fill only) |
+| IEX Website (Selenium) | RTM 15-min MCP, volumes | Feb 2023 – present |
+| Mendeley (Price.xlsx) | Hourly MCP + demand | 2021–2023 (gap fill) |
 | NASA POWER API | Weather — 8 Indian cities | 3 years |
 | Yahoo Finance | Crude oil, natural gas | 3 years |
 | Frankfurter API | USD/INR exchange rate | 3 years |
