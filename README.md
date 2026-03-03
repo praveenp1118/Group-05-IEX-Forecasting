@@ -28,10 +28,10 @@
 
 | Metric | Value |
 |---|---|
-| **Best Model** | XGBoost v7 |
-| **Test MAPE** | 20.65% |
+| **Best Model** | XGBoost v10 |
+| **Test MAPE** | 18.31% |
 | **ARIMA Baseline MAPE** | 53.46% |
-| **Improvement over Baseline** | 63.8% |
+| **Improvement over Baseline** | 65.7% |
 | **Simulated P&L** | ₹7.7 Crore (100 MW, 3 months) |
 | **Training Data** | 52,705 records (Aug 2024 – Feb 2026) |
 | **Forecast Horizon** | 96 blocks × 15 min = 24 hours |
@@ -44,15 +44,15 @@
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                    DATA SOURCES                             │
-│  IEX Website      NASA POWER API    Yahoo Finance           │
-│  (RTM 15-min)     (8 cities, 3yr)   (Crude/Gas/FX)          │
+│  IEX Website      OpenWeatherMap API    Yahoo Finance       │
+│  (RTM 15-min)     (8 cities, live)      (Crude/Gas/FX)      │
 └────────┬──────────────┬──────────────────┬──────────────────┘
          │              │                  │
          ▼              ▼                  ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                 DATA PIPELINE                               │
-│  scraper_iex.py      scraper_weather.py                     │
-│  fetch_historical_commodities.py                            │
+│  scraper_iex.py          scraper_weather.py                 │
+│  fetch_live_commodities.py  ← NEW (live prices daily)       │
 │        │               │                   │                │
 │        └───────────────┴───────────────────┘                │
 │                        │                                    │
@@ -114,6 +114,7 @@
 │   AWS EC2 t3.small          Docker Container                │
 │   13.236.44.97:5000         Port 5000                       │
 │   Auto-scheduler 30min      Chromium + Selenium             │
+│   Auto-prediction 30min     IST timezone (UTC+5:30)         │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -128,27 +129,28 @@ Group-05-IEX-Forecasting/
 │   ├── Price.xlsx                      # Mendeley dataset (2021-2023, hourly)
 │   ├── iex_historical.csv              # Scraped IEX RTM data (2023-2026)
 │   ├── iex_live.csv                    # Latest IEX 15-min blocks (auto-refreshed)
-│   ├── weather_historical.csv          # NASA POWER — 8 cities, 3 years
+│   ├── weather_historical.csv          # OpenWeatherMap — 8 cities, 3 years
 │   ├── weather_live.csv                # Latest weather readings (auto-refreshed)
 │   ├── commodities_historical.csv      # Crude oil, gas, USD/INR
-│   ├── commodities_live.csv            # Latest commodity prices (auto-refreshed)
+│   ├── commodities_live.csv            # Latest commodity prices (auto-refreshed daily)
 │   ├── prediction_log.csv              # Every prediction logged with actual MCP backfilled
 │   └── master_training_data.csv        # Final merged + engineered dataset
 │
 ├── data_pipeline/
 │   ├── scraper_iex.py                  # IEX website scraper (Selenium, headless)
-│   ├── scraper_weather.py              # NASA POWER API — 8 cities
-│   ├── fetch_historical_commodities.py # Yahoo Finance + Frankfurter
+│   ├── scraper_weather.py              # OpenWeatherMap API — 8 cities
+│   ├── fetch_live_commodities.py       # NEW — Yahoo Finance live crude/gas/FX daily
+│   ├── fetch_historical_commodities.py # Yahoo Finance + Frankfurter (historical)
 │   ├── merge_historical.py             # Master merge with leakage-free features
 │   ├── sync_live_files.py              # Copies historical to live CSVs
 │   ├── backfill_actuals.py             # Fills actual MCP into prediction_log
-│   ├── scheduler.py                    # Auto-refresh every 30 min + backfill
+│   ├── scheduler.py                    # Auto-refresh every 30 min + auto-prediction
 │   ├── eda_generator.py                # Auto-generates EDA HTML report
 │   ├── validator.py                    # Schema validation + dataset versioning
 │   └── monitor.py                      # Drift detection + rolling metrics
 │
 ├── models/
-│   ├── best_model.pkl                  # Best model (XGBoost v7)
+│   ├── best_model.pkl                  # Best model (XGBoost v10)
 │   ├── scaler.pkl                      # StandardScaler
 │   ├── feature_cols.pkl                # Feature column list
 │   ├── model_metadata.json             # Version, MAPE, training info
@@ -164,6 +166,7 @@ Group-05-IEX-Forecasting/
 │       └── eda_report.html             # Auto-generated EDA dashboard
 │
 ├── config.py
+├── .env                                # OPENWEATHER_API_KEY
 ├── .env.example
 ├── run_pipeline.py
 ├── Dockerfile
@@ -217,7 +220,7 @@ All rolling statistics computed on **shifted MCP** — current price never appea
 
 | Model | Test MAPE | RMSE (Rs/MWh) | CV MAPE | Notes |
 |---|---|---|---|---|
-| **XGBoost** | **20.65%** | 114 | 21% | Best — handles non-linearity |
+| **XGBoost** | **18.31%** | 114 | 21% | Best — handles non-linearity |
 | SVM | 69.48% | — | 21.28% | Good CV, poor extrapolation |
 | ARIMA | 53.46% | — | — | Baseline, no exogenous features |
 
@@ -235,8 +238,6 @@ All rolling statistics computed on **shifted MCP** — current price never appea
 | Price Cap Rs8,000 | Legal | 3,571 | -59 |
 | Monsoon Season | Environmental | 3,548 | -82 |
 
-Full analysis at `/pestle` — methodology, feature overrides, PESTLE framework explanation.
-
 ---
 
 ## 📡 Monitoring Dashboard (`/monitoring`)
@@ -244,32 +245,40 @@ Full analysis at `/pestle` — methodology, feature overrides, PESTLE framework 
 5-section operational health view:
 
 **1 — Model Health Alert (Traffic Light)**
-GREEN / YELLOW / RED based on model status, data age, rolling MAPE. Actionable recommendation.
+GREEN / YELLOW / RED based on model status, data age, rolling MAPE.
 
 **2 — Data Drift (KS Test)**
-KS test on MCP, purchase_bid_mw, sell_bid_mw, mcv_mw vs training distribution. p < 0.05 = drift.
+KS test on MCP distribution vs 18-month training window.
+Uses **KS statistic > 0.20** (practical significance) instead of p-value —
+p-value is unreliable with 50,000+ samples (always significant by chance).
+Only checks MCP — volume features excluded as they are not model inputs.
 
-**3 — Last 30 Predictions**
-Predicted vs actual MCP, per-prediction MAPE, signal, confidence, model version. Actuals auto-filled by backfill_actuals.py.
+**3 — Last 30 Predictions (Past Blocks Only)**
+Predicted vs actual MCP for past time blocks only.
+Future forecast blocks are excluded — those belong in `/forecast/24h`.
+Each prediction logged with its correct IST block timestamp.
+Actuals auto-filled by `backfill_actuals.py` when IEX publishes data.
 
 **4 — Data Pipeline Health**
 All 6 data files — records, last modified, size, FRESH/WARNING/STALE status.
 
 **5 — Price Distribution Shift**
-Full Historical vs Last 30 Days vs Live Today — mean, median, std, percentiles, spike rate. Warns if live mean differs >15% from training.
+Full Historical vs Last 30 Days vs Live Today — mean, median, std, percentiles, spike rate.
 
 ---
 
-## 📋 Model Summary Card (`/model-summary`)
+## 🔧 Production Fixes Applied (Post-Deployment)
 
-Complete model card:
-- All models evaluated (ARIMA, SVM, XGBoost) with metrics
-- CrossValidation strategy (TimeSeriesSplit, 3-fold)
-- Training data period, sources, test split rationale
-- Data cleaning pipeline (6 steps)
-- 4 critical bugs found and fixed (with MAPE impact)
-- Top 10 feature importances
-- Deployment and monitoring setup
+| Issue | Root Cause | Fix |
+|---|---|---|
+| Commodities data stuck on Feb 23 | `fetch_historical_commodities.py` not running live | New `fetch_live_commodities.py` — Yahoo Finance BZ=F, NG=F + Frankfurter USD/INR |
+| Monitoring predictions never updated | Scheduler refreshed data but never generated new predictions | Added `auto_predict()` to scheduler — hits `/forecast/24h` every 30 min |
+| All 96 predictions had same timestamp | `log_pred()` used `datetime.now()` instead of forecast block time | Fixed `log_pred(log_ts=dt)` — each block gets its correct IST timestamp |
+| Monitoring showed tomorrow's predictions | `tail(30)` picks newest rows = future forecast blocks | Added filter: only show predictions where timestamp ≤ now (IST) |
+| Data freshness showing 330 min stale | `file_age_minutes()` used IST but CSV timestamps stored in UTC | Reverted `file_age_minutes()` to UTC `datetime.now()` |
+| KS drift false positive on all features | Comparing live vs full 3-year history including 2023 high-price regime | Filter historical to 18-month training window before KS test |
+| KS p-value always 0.000 | p-value meaningless with 50K+ samples | Use KS statistic > 0.20 threshold (practical significance) |
+| Drift flagging non-model features | Checking purchase_bid, sell_bid, mcv which model doesn't use | Only check MCP — the target variable distribution |
 
 ---
 
@@ -291,6 +300,9 @@ docker-compose up -d --build
 # Logs
 docker logs group05-iex-api --follow
 
+# Test live commodities scraper
+docker exec group05-iex-api python3 data_pipeline/fetch_live_commodities.py
+
 # Backfill actual MCP into prediction log
 docker exec group05-iex-api python3 data_pipeline/backfill_actuals.py
 
@@ -302,6 +314,19 @@ docker exec group05-iex-api python3 data_pipeline/scheduler.py
 
 # Stop
 docker-compose down
+```
+
+### Deploy Updated Files to EC2
+```powershell
+# From local PowerShell
+scp -i "C:\Users\prave\Downloads\group05-key.pem" "D:\Group-05-IEX-Forecasting\app\app.py" ec2-user@13.236.44.97:~/app.py
+scp -i "C:\Users\prave\Downloads\group05-key.pem" "D:\Group-05-IEX-Forecasting\data_pipeline\scheduler.py" ec2-user@13.236.44.97:~/scheduler.py
+```
+```bash
+# From SSH
+docker cp ~/app.py group05-iex-api:/app/app/app.py
+docker cp ~/scheduler.py group05-iex-api:/app/data_pipeline/scheduler.py
+docker restart group05-iex-api
 ```
 
 ---
@@ -334,17 +359,18 @@ flask, pandas, numpy, scikit-learn, xgboost
 statsmodels, matplotlib, seaborn, scipy
 openpyxl, requests, gunicorn
 python-dotenv, selenium, webdriver-manager
+yfinance (optional — fetch_live_commodities.py falls back to requests)
 ```
 
 ---
 
 ## 📈 Business Value
 
-- **63.8% improvement** over ARIMA baseline
+- **65.7% improvement** over ARIMA baseline
 - **Rs 7.7 Crore simulated P&L** over 3-month test period (100 MW volume)
 - **24-hour forecast** with per-block BUY/SELL/HOLD signals
 - **Live AWS deployment** — http://13.236.44.97:5000
-- **Auto-refresh** every 30 minutes
+- **Auto-refresh** every 30 minutes (data + predictions)
 - **Full monitoring** — health, drift, rolling MAPE, pipeline, distribution shift
 - **Model rollback** — previous versions in `models/archive/`
 
@@ -362,9 +388,9 @@ python-dotenv, selenium, webdriver-manager
 |---|---|---|
 | IEX Website (Selenium) | RTM 15-min MCP, volumes | Feb 2023 – present |
 | Mendeley (Price.xlsx) | Hourly MCP + demand | 2021–2023 (gap fill) |
-| NASA POWER API | Weather — 8 Indian cities | 3 years |
-| Yahoo Finance | Crude oil, natural gas | 3 years |
-| Frankfurter API | USD/INR exchange rate | 3 years |
+| OpenWeatherMap API | Weather — 8 Indian cities | Live + historical |
+| Yahoo Finance (BZ=F, NG=F) | Crude oil, natural gas | Live + historical |
+| Frankfurter API | USD/INR exchange rate | Live + historical |
 
 ---
 

@@ -25,6 +25,13 @@ try:
 except Exception as e:
     print(f"Config load: {e}")
 
+from datetime import datetime, timedelta, timezone
+
+IST = timezone(timedelta(hours=5, minutes=30))
+
+def now_ist():
+    return datetime.now(IST).replace(tzinfo=None)
+
 app = Flask(__name__)
 
 MODELS_DIR   = os.path.join(_BASE_DIR, "models")
@@ -52,7 +59,7 @@ def load_model():
         state["model"]        = pickle.load(open(os.path.join(MODELS_DIR,"best_model.pkl"),  "rb"))
         state["scaler"]       = pickle.load(open(os.path.join(MODELS_DIR,"scaler.pkl"),      "rb"))
         state["feature_cols"] = pickle.load(open(os.path.join(MODELS_DIR,"feature_cols.pkl"),"rb"))
-        state["loaded_at"]    = datetime.now().isoformat()
+        state["loaded_at"]    = now_ist().isoformat()
         state["flag_mtime"]   = os.path.getmtime(RETRAIN_FLAG) if os.path.exists(RETRAIN_FLAG) else None
         meta = os.path.join(MODELS_DIR,"model_metadata.json")
         if os.path.exists(meta):
@@ -189,7 +196,7 @@ def load_live_features():
         feats["coal_price"]       = feats["crude_oil_usd"]*1.8
         feats["fuel_proxy"]       = feats["crude_oil_usd"]*0.4 + feats["natural_gas_usd"]*10 + feats["coal_price"]*0.3
 
-    now = datetime.now()
+    now = now_ist()
     feats["hour"]        = now.hour
     feats["day_of_week"] = now.weekday()
     feats["month"]       = now.month
@@ -221,8 +228,8 @@ def signal(pred, prev):
     if pred < prev*0.95: return "SELL", "Price falling — sell now"
     return "HOLD", "Price stable — hold position"
 
-def log_pred(features, pred, conf, version, block=1):
-    row = {"timestamp":datetime.now().isoformat(),"model_version":version,
+def log_pred(features, pred, conf, version, block=1, log_ts=None):
+    row = {"timestamp":(log_ts or datetime.now()).isoformat(),"model_version":version,
            "horizon_block":block,"predicted_mcp":round(pred,2),"confidence":conf,
            "mcp_lag_1h":features.get("mcp_lag_1h"),"temp_delhi":features.get("temp_delhi"),
            "hour":features.get("hour"),"is_weekend":features.get("is_weekend"),"actual_mcp":None}
@@ -234,7 +241,7 @@ def log_pred(features, pred, conf, version, block=1):
 
 def build_24h_forecast(base):
     forecasts, cur, hist = [], dict(base), [base.get("mcp_lag_1h",3500)]*300
-    now = datetime.now().replace(second=0,microsecond=0)
+    now = now_ist().replace(second=0,microsecond=0)
     for block in range(1,97):
         dt = now + timedelta(minutes=15*block)
         cur.update({"hour":dt.hour,"day_of_week":dt.weekday(),"month":dt.month,
@@ -254,7 +261,7 @@ def build_24h_forecast(base):
         pred = predict_price(cur); hist.append(pred)
         conf = confidence(pred, cur.get("price_volatility",200), block)
         sig, action = signal(pred, hist[-2])
-        log_pred(cur, pred, conf, state["version"], block)
+        log_pred(cur, pred, conf, state["version"], block, log_ts=dt)
         forecasts.append({"block":block,"datetime":dt.strftime("%Y-%m-%d %H:%M"),
                           "predicted_mcp":round(pred,2),"confidence":conf,
                           "signal":sig,"action":action})
@@ -540,11 +547,11 @@ def predict():
       </div>
       <div style="background:#f8f9ff;padding:14px;border-radius:8px">
         <label style="font-size:.82em;color:#555;font-weight:bold">Hour of Day (0-23)</label>
-        <input type="number" name="hour" value="{f.get('hour',datetime.now().hour)}" min="0" max="23" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;margin-top:4px">
+        <input type="number" name="hour" value="{f.get('hour',now_ist().hour)}" min="0" max="23" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;margin-top:4px">
       </div>
       <div style="background:#f8f9ff;padding:14px;border-radius:8px">
         <label style="font-size:.82em;color:#555;font-weight:bold">Day of Week (0=Mon, 6=Sun)</label>
-        <input type="number" name="day_of_week" value="{f.get('day_of_week',datetime.now().weekday())}" min="0" max="6" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;margin-top:4px">
+        <input type="number" name="day_of_week" value="{f.get('day_of_week',now_ist().weekday())}" min="0" max="6" style="width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;margin-top:4px">
       </div>
       <div style="background:#f8f9ff;padding:14px;border-radius:8px">
         <label style="font-size:.82em;color:#555;font-weight:bold">Temperature Delhi (°C)</label>
@@ -648,7 +655,13 @@ def data_latest():
         try:
             df    = pd.read_csv(fpath)
             age   = file_age_minutes(fpath)
-            latest= df.iloc[-1].to_dict() if len(df)>0 else {}
+            # For weather — show Delhi (model city), not last row which may be blank
+            if name == "Weather" and "city" in df.columns:
+                delhi = df[df["city"]=="Delhi"]
+                row   = delhi.iloc[-1] if len(delhi)>0 else df.iloc[-1]
+            else:
+                row   = df.iloc[-1] if len(df)>0 else df.iloc[0]
+            latest= row.to_dict() if len(df)>0 else {}
             latest= {k:(None if isinstance(v,float) and np.isnan(v) else v) for k,v in latest.items()}
             sources[name]={"status":freshness_label(age),"age":age,"records":len(df),"latest":latest}
         except Exception as e:
@@ -659,7 +672,7 @@ def data_latest():
         status = info["status"]
         age    = f"{info['age']:.0f} min ago" if isinstance(info["age"],float) else info["age"]
         latest = info.get("latest",{})
-        rows   = "".join(f'<tr><td style="font-family:monospace;font-size:.85em">{k}</td><td>{v}</td></tr>' for k,v in list(latest.items())[:8] if v is not None)
+        rows   = "".join(f'<tr><td style="font-family:monospace;font-size:.85em">{k}</td><td>{v}</td></tr>' for k,v in list(latest.items())[:12] if v is not None and str(v).strip() != "" and str(v).strip() != "nan")
         sc     = {"FRESH":"cg","WARNING":"co","STALE":"cr"}.get(status,"cgr")
         cards_html += f"""
         <div class="sec">
@@ -1026,7 +1039,7 @@ def pestle():
 # ══════════════════════════════════════════════════════════════
 @app.route("/monitoring")
 def monitoring():
-    now = datetime.now()
+    now = now_ist()
 
     # ── 1. MODEL HEALTH ALERT ────────────────────────────────
     mape_val   = state["mape"] or 0
@@ -1042,6 +1055,12 @@ def monitoring():
         try:
             pred_df = pd.read_csv(PRED_LOG, parse_dates=["timestamp"]).dropna(subset=["predicted_mcp"])
         except: pass
+
+    # Show last 30 predictions — backfill handles actuals for past blocks
+    if len(pred_df) > 0:
+        pred_df["_ts"] = pd.to_datetime(pred_df["timestamp"], errors="coerce")
+        # Only past blocks — future belongs in /forecast/24h
+        pred_df = pred_df[pred_df["_ts"] <= pd.Timestamp(now_ist())].drop(columns=["_ts"])
 
     has_actuals  = "actual_mcp" in pred_df.columns and pred_df["actual_mcp"].notna().sum() >= 5
     rolling_mape = None
@@ -1120,10 +1139,14 @@ def monitoring():
         if os.path.exists(hist_path) and os.path.exists(live_path):
             hist = pd.read_csv(hist_path).dropna(subset=["MCP"])
             live = pd.read_csv(live_path).dropna(subset=["MCP"])
+            # Fix: compare against 18-month training window only, not full history
+            hist["_date"] = pd.to_datetime(hist["date"], format="%d-%m-%Y", errors="coerce")
+            cutoff = hist["_date"].max() - pd.DateOffset(months=18)
+            hist = hist[hist["_date"] >= cutoff].drop(columns=["_date"])
 
             # Features to check for drift
             drift_checks = {}
-            for col in ["MCP","purchase_bid_mw","sell_bid_mw","mcv_mw"]:
+            for col in ["MCP"]:
                 if col in hist.columns and col in live.columns:
                     h_vals = hist[col].dropna().values
                     l_vals = live[col].dropna().values
@@ -1135,7 +1158,8 @@ def monitoring():
                 drift_rows = ""
                 any_drift = False
                 for feat,(stat,pval) in drift_checks.items():
-                    drifted = pval < 0.05
+                    #drifted = pval < 0.05
+                    drifted = stat > 0.20  # practical significance — p-value meaningless with large samples
                     if drifted: any_drift = True
                     dc = "#e94560" if drifted else "#27ae60"
                     label = "YES — DRIFT" if drifted else "No drift"
