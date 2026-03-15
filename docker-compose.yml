@@ -1,5 +1,4 @@
 version: '3.8'
-
 services:
   iex-api:
     build: .
@@ -7,17 +6,20 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      # Data + models persist on your disk, not inside container
       - ./data:/app/data
       - ./models:/app/models
       - ./app/static:/app/app/static
     env_file:
-      # Reads your .env file — keys never baked into image
       - .env
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
     restart: unless-stopped
+    ulimits:
+      nproc: 65536
+      nofile:
+        soft: 65536
+        hard: 65536
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
       interval: 30s
