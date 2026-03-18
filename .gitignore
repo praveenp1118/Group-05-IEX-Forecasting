@@ -34,3 +34,4 @@ Thumbs.db
 
 # Large data files (keep historical CSVs but ignore huge ones)
 data/master_training_data.csv
+".env" 
