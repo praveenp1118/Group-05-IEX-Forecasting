@@ -10,15 +10,15 @@
 
 | | |
 |---|---|
-| **Public URL** | http://13.236.44.97:5000 |
-| **Home Page** | http://13.236.44.97:5000/ |
-| **Model Summary** | http://13.236.44.97:5000/model-summary |
-| **Health Check** | http://13.236.44.97:5000/health |
-| **Interactive Predictor** | http://13.236.44.97:5000/predict |
-| **24h Forecast** | http://13.236.44.97:5000/forecast/24h |
-| **EDA Dashboard** | http://13.236.44.97:5000/eda |
-| **PESTLE Analysis** | http://13.236.44.97:5000/pestle |
-| **Monitoring** | http://13.236.44.97:5000/monitoring |
+| **Public URL** | http://15.135.168.75:5000 |
+| **Home Page** | http://15.135.168.75:5000/ |
+| **Model Summary** | http://15.135.168.75:5000/model-summary |
+| **Health Check** | http://15.135.168.75:5000/health |
+| **Interactive Predictor** | http://15.135.168.75:5000/predict |
+| **24h Forecast** | http://15.135.168.75:5000/forecast/24h |
+| **EDA Dashboard** | http://15.135.168.75:5000/eda |
+| **PESTLE Analysis** | http://15.135.168.75:5000/pestle |
+| **Monitoring** | http://15.135.168.75:5000/monitoring |
 | **Server** | AWS EC2 t3.small — ap-southeast-2 (Sydney) |
 | **Container** | Docker (Python 3.11 + Chromium/Selenium) |
 
@@ -112,7 +112,7 @@
 ┌─────────────────────────────────────────────────────────────┐
 │                   DEPLOYMENT                                │
 │   AWS EC2 t3.small          Docker Container                │
-│   13.236.44.97:5000         Port 5000                       │
+│   15.135.168.75:5000         Port 5000                       │
 │   Auto-scheduler 30min      Chromium + Selenium             │
 │   Auto-prediction 30min     IST timezone (UTC+5:30)         │
 └─────────────────────────────────────────────────────────────┘
@@ -319,8 +319,8 @@ docker-compose down
 ### Deploy Updated Files to EC2
 ```powershell
 # From local PowerShell
-scp -i "C:\Users\prave\Downloads\group05-key.pem" "D:\Group-05-IEX-Forecasting\app\app.py" ec2-user@13.236.44.97:~/app.py
-scp -i "C:\Users\prave\Downloads\group05-key.pem" "D:\Group-05-IEX-Forecasting\data_pipeline\scheduler.py" ec2-user@13.236.44.97:~/scheduler.py
+scp -i "C:\Users\prave\Downloads\group05-key.pem" "D:\Group-05-IEX-Forecasting\app\app.py" ec2-user@15.135.168.75:~/app.py
+scp -i "C:\Users\prave\Downloads\group05-key.pem" "D:\Group-05-IEX-Forecasting\data_pipeline\scheduler.py" ec2-user@15.135.168.75:~/scheduler.py
 ```
 ```bash
 # From SSH
@@ -369,7 +369,7 @@ yfinance (optional — fetch_live_commodities.py falls back to requests)
 - **65.7% improvement** over ARIMA baseline
 - **Rs 7.7 Crore simulated P&L** over 3-month test period (100 MW volume)
 - **24-hour forecast** with per-block BUY/SELL/HOLD signals
-- **Live AWS deployment** — http://13.236.44.97:5000
+- **Live AWS deployment** — http://15.135.168.75:5000
 - **Auto-refresh** every 30 minutes (data + predictions)
 - **Full monitoring** — health, drift, rolling MAPE, pipeline, distribution shift
 - **Model rollback** — previous versions in `models/archive/`
